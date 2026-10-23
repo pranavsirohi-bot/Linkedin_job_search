@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn Job Saver",
+  "version": "0.9.2",
+  "description": "Save the LinkedIn jobs you are viewing to a private, anonymous profile in your Supabase database, then search them and download them as CSV.",
+  "minimum_chrome_version": "110",
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "LinkedIn Job Saver",
+    "default_popup": "src/popup/popup.html"
+  },
+  "background": {
+    "service_worker": "dist/service-worker.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://*.supabase.co"
+  },
+  "host_permissions": ["https://www.linkedin.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": [
+        "src/extract/xpath-selectors.js",
+        "src/extract/normalize.js",
+        "src/extract/extractor.js",
+        "src/content/content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

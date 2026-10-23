@@ -1,0 +1,8 @@
+title,company,url,location
+Valid Job,Example Co,https://careers.example.com/jobs/201,Paris
+,Example Co,https://careers.example.com/jobs/202,No title
+Missing URL,Example Co,,Madrid
+Insecure URL,Example Co,http://careers.example.com/jobs/203,Rome
+Script URL,Example Co,javascript:alert(1),Oslo
+Valid Job,Example Co,https://careers.example.com/jobs/201,Duplicate of row 1
+Another Valid Job,Example Co,https://careers.example.com/jobs/204,Vienna

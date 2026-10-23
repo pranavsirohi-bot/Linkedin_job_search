@@ -1,0 +1,27 @@
+{
+  "jobs": [
+    {
+      "id": "EX-301",
+      "title": "Frontend Engineer",
+      "company": "Example Co",
+      "url": "https://careers.example.com/jobs/301",
+      "location": "Remote",
+      "employmentType": "Full-time",
+      "workplaceType": "Remote",
+      "skills": ["javascript", "css"],
+      "postedDate": "2026-10-12",
+      "description": "<p>Build fast, accessible interfaces.</p>"
+    },
+    {
+      "id": "EX-302",
+      "title": "Backend Engineer",
+      "company": "Example Co",
+      "url": "https://careers.example.com/jobs/302",
+      "location": "Berlin",
+      "employmentType": "Contract",
+      "workplaceType": "Hybrid",
+      "skills": "node; postgres",
+      "salary": "EUR 80,000"
+    }
+  ]
+}

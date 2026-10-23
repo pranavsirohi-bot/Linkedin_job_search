@@ -1,0 +1,48 @@
+<!doctype html>
+<html><body>
+<!-- Card 1: trimmed copy of the real pasted card (structure + attributes preserved, svg/img removed). -->
+<div class="kfe4n kfea1l"><div class="kfeax1" data-display-contents="true">
+<div role="button" tabindex="0" class="kfekt4" componentkey="job-card-component-ref-4480307941">
+ <div class="kfellx kfeig2" componentkey="job-card-component-ref-4480307941">
+  <div class="kfeax9"><figure aria-hidden="true"></figure>
+   <div class="kfellx kfeig2"><div class="kfeax9"><div class="kfellx kfeig2"><div class="kfellx kfeax9">
+     <div class="kfeax1" data-display-contents="true"><p class="kfek4p"><span class="kfea19 kfelly">Graphic Designer</span><span aria-hidden="true">Graphic Designer</span></p></div>
+     <div class="kfekxl kfeax9"><p class="kfek4p kfekz3">Capgemini</p></div>
+     <p class="kfek4p kfekz3 kfekxl">Mumbai Metropolitan Region</p>
+    </div></div>
+    <div class="kfeax9"><button type="button" aria-label="Dismiss Graphic Designer job"><span></span></button></div></div>
+    <div class="kfellx kfekxm"><div class="kfekxl kfekx2"><figure aria-hidden="true"></figure><div class="kfeig2"><p class="kfek4p"><span>1 company alumni works here</span></p></div></div>
+     <div class="kfeax9"><p class="kfek4p">Viewed</p></div></div>
+   </div></div></div></div></div></div>
+
+<!-- Card 2: SYNTHETIC (same structure as card 1; not real markup). Tests "(Remote)" in location. -->
+<div class="kfeax1" data-display-contents="true">
+<div role="button" tabindex="0" componentkey="job-card-component-ref-4450363857">
+ <div componentkey="job-card-component-ref-4450363857">
+  <div><div><div>
+     <div data-display-contents="true"><p><span>Junior Graphic Designer</span><span aria-hidden="true">Junior Graphic Designer</span></p></div>
+     <div><p>YourfriendlyHR</p></div>
+     <p>India (Remote)</p>
+  </div></div></div></div></div></div>
+
+<!-- Card 3: DUPLICATE of card 1's ID (virtualised lists can re-render). Must be de-duplicated. -->
+<div class="kfeax1" data-display-contents="true">
+<div role="button" tabindex="0" componentkey="job-card-component-ref-4480307941">
+ <div componentkey="job-card-component-ref-4480307941">
+  <div><div><div>
+     <div data-display-contents="true"><p><span>Graphic Designer</span><span aria-hidden="true">Graphic Designer</span></p></div>
+     <div><p>Capgemini</p></div>
+     <p>Mumbai Metropolitan Region</p>
+  </div></div></div></div></div></div>
+
+<!-- Card 4: SYNTHETIC with missing company/location elements. Must not throw. -->
+<div class="kfeax1" data-display-contents="true">
+<div role="button" tabindex="0" componentkey="job-card-component-ref-4400000001">
+ <div componentkey="job-card-component-ref-4400000001">
+  <div><div><div>
+     <div data-display-contents="true"><p><span>Mystery Role</span><span aria-hidden="true">Mystery Role</span></p></div>
+  </div></div></div></div></div></div>
+
+<!-- Non-card element sharing the componentkey prefix without role=button: must NOT match. -->
+<div componentkey="job-card-component-ref-9999999999"><p><span aria-hidden="true">Not a card</span></p></div>
+</body></html>

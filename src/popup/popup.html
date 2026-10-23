@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LinkedIn Job Saver</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>LinkedIn Job Saver</h1>
+
+    <section>
+      <h2>Current page</h2>
+      <p id="page-status">Checking…</p>
+    </section>
+
+    <section id="account">
+      <h2>Profile</h2>
+      <p id="account-note" class="muted">Setting up your private profile…</p>
+      <button id="btn-retry" type="button" hidden>Try again</button>
+
+      <div id="profile" hidden>
+        <p>Private profile on this browser <span id="profile-id" class="muted"></span></p>
+        <p class="muted">Saved jobs: <span id="saved-count">–</span></p>
+        <button id="btn-open-library" type="button">Open saved jobs table</button>
+        <p class="muted small">
+          No email or password. Your saved jobs are tied to this extension's data in this browser. If that data is
+          cleared or the extension is removed, they cannot be recovered.
+        </p>
+      </div>
+    </section>
+
+    <section id="collect-section" hidden>
+      <h2>Auto-save</h2>
+      <button id="btn-start" type="button" class="primary">Start</button>
+      <button id="btn-stop" type="button" class="stop" disabled>Stop</button>
+      <button id="btn-save-job" type="button">Save open job only</button>
+      <label class="small option"><input id="opt-save-cards" type="checkbox" /> Also save list cards (title, company and
+        location only; marked "Card only")</label>
+      <p id="collect-hint" class="muted small">
+        Press Start once, then click each job in the LinkedIn list yourself. LinkedIn shows the full details of one job at
+        a time (on the right); each job you open is saved with its full details about two seconds after it appears.
+        The extension never clicks or navigates for you. Press Stop to end. Jobs already saved are updated, not duplicated.
+      </p>
+
+      <div id="collect-progress" aria-live="polite">
+        <p id="collect-status" class="run-status">Not started.</p>
+        <div class="bar" id="collect-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="collect-fill"></span></div>
+        <dl class="counters">
+          <div><dt>Pages</dt><dd id="k-pages">0</dd></div>
+          <div><dt>Discovered</dt><dd id="k-discovered">0</dd></div>
+          <div><dt>Processed</dt><dd id="k-processed">0</dd></div>
+          <div><dt>Full details</dt><dd id="k-full">0</dd></div>
+          <div><dt>Saved (new)</dt><dd id="k-saved">0</dd></div>
+          <div><dt>Already saved (updated)</dt><dd id="k-existing">0</dd></div>
+          <div><dt>Skipped</dt><dd id="k-skipped">0</dd></div>
+          <div><dt>Partial</dt><dd id="k-partial">0</dd></div>
+          <div><dt>Failed</dt><dd id="k-failed">0</dd></div>
+        </dl>
+        <p id="collect-job" class="small" hidden><strong id="job-state"></strong> <span id="job-name"></span></p>
+        <p id="collect-guide" class="small" hidden></p>
+        <p id="collect-auto" class="muted small"></p>
+        <p id="collect-detail" class="muted small" hidden></p>
+        <p id="collect-error" class="error-line small" hidden></p>
+      </div>
+    </section>
+
+    <section id="download-section" hidden>
+      <h2>Download</h2>
+      <button id="btn-download-csv" type="button">Download CSV</button>
+      <p id="download-status" class="muted small" aria-live="polite">Exports every job you have saved, with all saved details (title, company, location, URL, description, ...).</p>
+    </section>
+
+    <p id="status" role="status" aria-live="polite" hidden></p>
+
+    <details id="tools" class="panel" hidden>
+      <summary><h2>Selector check</h2></summary>
+      <button id="btn-diagnose" type="button">Run diagnostics</button>
+      <button id="btn-extract" type="button">Preview extraction</button>
+      <p class="muted">Read-only. Nothing is saved.</p>
+    </details>
+
+    <pre id="output" hidden></pre>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

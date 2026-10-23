@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Saved jobs - LinkedIn Job Saver</title>
+    <link rel="stylesheet" href="library.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Saved jobs</h1>
+      <p class="muted">
+        Private profile on this browser. No email or password: if this extension's data is cleared or the extension is
+        removed, these jobs cannot be recovered.
+      </p>
+    </header>
+
+    <p id="notice" role="status" aria-live="polite" hidden></p>
+
+    <form id="filters" autocomplete="off">
+      <label>Keywords <input id="f-query" type="search" placeholder="title, company, description" maxlength="200" /></label>
+      <label>Company <input id="f-company" type="search" maxlength="200" /></label>
+      <label>Location <input id="f-location" type="search" maxlength="200" /></label>
+      <label>Skills (all, comma separated) <input id="f-skills" type="search" placeholder="photoshop, figma" maxlength="200" /></label>
+      <label>Workplace
+        <select id="f-workplace">
+          <option value="">Any</option><option>Remote</option><option>Hybrid</option><option>On-site</option>
+        </select>
+      </label>
+      <label>Employment
+        <select id="f-employment">
+          <option value="">Any</option><option>Full-time</option><option>Part-time</option><option>Contract</option>
+          <option>Temporary</option><option>Internship</option><option>Volunteer</option><option>Apprenticeship</option>
+        </select>
+      </label>
+      <label>Applications
+        <select id="f-status">
+          <option value="">Any</option>
+          <option value="open">Open</option>
+          <option value="closed">Closed</option>
+          <option value="unknown">Unknown</option>
+        </select>
+      </label>
+      <label>Details
+        <select id="f-detail">
+          <option value="">All</option>
+          <option value="full">Full details</option>
+          <option value="card">Card only</option>
+        </select>
+      </label>
+      <div class="actions">
+        <button id="btn-search" type="submit">Search</button>
+        <button id="btn-reset" type="button">Reset</button>
+      </div>
+    </form>
+
+    <section id="export-bar" aria-label="Export">
+      <label>Export as
+        <select id="export-format">
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="csv">CSV (.csv)</option>
+        </select>
+      </label>
+      <button id="btn-export-filtered" type="button">Export filtered results</button>
+      <button id="btn-export-all" type="button">Export all saved jobs</button>
+      <span class="muted">Exporting never changes or deletes your saved jobs.</span>
+    </section>
+
+    <p id="summary" class="muted" aria-live="polite">Loading…</p>
+
+    <div class="table-wrap">
+      <table id="jobs">
+        <caption class="sr-only">Saved jobs</caption>
+        <thead>
+          <tr>
+            <th scope="col">Job</th>
+            <th scope="col">Company</th>
+            <th scope="col">Location</th>
+            <th scope="col">Workplace</th>
+            <th scope="col">Employment</th>
+            <th scope="col">Applications</th>
+            <th scope="col">Posted</th>
+            <th scope="col">Saved</th>
+            <th scope="col">Skills</th>
+            <th scope="col">Source</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div id="empty" hidden></div>
+    <button id="btn-retry" type="button" hidden>Try again</button>
+
+    <nav id="pager" aria-label="Pages">
+      <button id="btn-prev" type="button">Previous</button>
+      <span id="page-info" class="muted"></span>
+      <button id="btn-next" type="button">Next</button>
+    </nav>
+
+    <script type="module" src="../../dist/library.js"></script>
+  </body>
+</html>

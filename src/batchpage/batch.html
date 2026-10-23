@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Batch collection - LinkedIn Job Saver</title>
+    <link rel="stylesheet" href="batch.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Batch collection</h1>
+      <p class="muted">
+        Collect many jobs at once from <strong>authorized sources only</strong>: a company's public Greenhouse job board
+        (official API) or a CSV/JSON file you provide. This does <strong>not</strong> crawl LinkedIn.
+        Jobs are saved to your private profile as the run goes, so a pause, stop or interruption never loses finished work.
+      </p>
+      <p class="muted small">
+        No email or password: your saved jobs are tied to this extension's data in this browser. If that data is cleared
+        or the extension is removed, they cannot be recovered.
+      </p>
+    </header>
+
+    <p id="message" role="status" aria-live="polite" hidden></p>
+
+    <section id="setup" aria-labelledby="setup-h">
+      <h2 id="setup-h">1. Source</h2>
+      <label class="field">Job source
+        <select id="source">
+          <option value="greenhouse">Greenhouse company job boards (official public API)</option>
+          <option value="file">Import a CSV / JSON file</option>
+        </select>
+      </label>
+
+      <div id="cfg-greenhouse">
+        <label class="field">Company board tokens (one per line)
+          <textarea id="boards" rows="4" placeholder="figma&#10;gitlab" spellcheck="false"></textarea>
+        </label>
+        <p class="muted small">
+          The token is the last part of a company's Greenhouse job-board address (for example
+          <code>boards.greenhouse.io/<strong>figma</strong></code>). Up to 10 boards. Data comes from Greenhouse's public Job Board API
+          (<a href="https://docs.greenhouse.io/job-board.html" target="_blank" rel="noopener noreferrer">documentation</a>);
+          each saved job keeps its original posting link. Only use boards you are allowed to read.
+        </p>
+        <label class="field">Only titles containing (optional)
+          <input id="keyword" type="text" maxlength="100" autocomplete="off" />
+        </label>
+      </div>
+
+      <div id="cfg-file" hidden>
+        <label class="field">CSV or JSON file (max 2 MB)
+          <input id="file" type="file" accept=".csv,.json,text/csv,application/json" />
+        </label>
+        <p class="muted small">
+          Needs a <strong>title</strong> and an <strong>https URL</strong> per job. Optional: company, location, description,
+          posted date, salary, employment type, remote, skills, experience, status, id. Any HTML is converted to plain text.
+          Re-importing the same file is safe: existing jobs are updated, never duplicated, and empty optional fields never
+          erase values already saved. Full format: <code>docs/IMPORT_FORMAT.md</code> in the extension folder.
+        </p>
+        <div id="file-summary" hidden></div>
+      </div>
+
+      <h2>2. Limits</h2>
+      <div class="limits">
+        <label class="field">Max jobs <input id="max-jobs" type="number" min="1" max="500" value="200" /></label>
+        <label class="field">Max pages <input id="max-pages" type="number" min="1" max="50" value="10" /></label>
+        <label class="field">Page size <input id="page-size" type="number" min="1" max="50" value="25" /></label>
+      </div>
+      <p class="muted small">Hard limits: 500 jobs, 50 pages, 50 per page.</p>
+    </section>
+
+    <section id="controls" aria-label="Run controls">
+      <button id="btn-start" type="button">Start</button>
+      <button id="btn-pause" type="button">Pause</button>
+      <button id="btn-resume" type="button">Resume</button>
+      <button id="btn-stop" type="button">Stop</button>
+      <button id="btn-dismiss" type="button">Clear result</button>
+      <button id="btn-library" type="button">Open saved jobs</button>
+    </section>
+
+    <section id="progress" aria-labelledby="progress-h" aria-live="polite">
+      <h2 id="progress-h">Progress</h2>
+      <p id="run-status" class="run-status">No run yet.</p>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><span id="bar-fill"></span></div>
+      <dl id="counters" class="counters">
+        <div><dt>Discovered</dt><dd id="c-discovered">0</dd></div>
+        <div><dt>Processed</dt><dd id="c-processed">0</dd></div>
+        <div><dt>Saved</dt><dd id="c-saved">0</dd></div>
+        <div><dt>Duplicates</dt><dd id="c-duplicates">0</dd></div>
+        <div><dt>Skipped</dt><dd id="c-skipped">0</dd></div>
+        <div><dt>Failed</dt><dd id="c-failed">0</dd></div>
+      </dl>
+      <p id="page-line" class="muted"></p>
+      <p id="import-line" class="muted" hidden></p>
+      <p id="retry-line" class="retry" hidden></p>
+      <p id="error-line" class="error-line" hidden></p>
+      <ul id="warnings" class="muted small"></ul>
+      <details id="failures-box" hidden>
+        <summary>Recent failures</summary>
+        <ul id="failures"></ul>
+      </details>
+    </section>
+
+    <script type="module" src="../../dist/batch.js"></script>
+  </body>
+</html>

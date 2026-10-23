@@ -1,0 +1,50 @@
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 860px; padding: 16px 24px 48px; font: 14px/1.45 system-ui, sans-serif; color: #1f2328; background: #fff; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #57606a; margin: 18px 0 6px; }
+.muted { color: #57606a; }
+.small { font-size: 12px; }
+code { font-size: 12px; }
+
+#message { margin: 10px 0; padding: 8px 10px; border-radius: 6px; background: #ddf4ff; }
+#message.ok { background: #dafbe1; }
+#message.warn { background: #fff8c5; }
+#message.error { background: #ffebe9; }
+
+.field { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; font-size: 12px; color: #57606a; }
+.limits { display: flex; gap: 14px; flex-wrap: wrap; }
+.limits .field { width: 130px; }
+input, select, textarea { font: inherit; padding: 5px 7px; color: inherit; background: transparent; border: 1px solid #8c959f; border-radius: 4px; }
+textarea { resize: vertical; font-family: ui-monospace, monospace; }
+button { font: inherit; padding: 6px 14px; margin: 0 6px 6px 0; cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+#btn-start { font-weight: 600; }
+
+#file-summary { margin: 8px 0; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; }
+#file-summary ul { margin: 4px 0 0 18px; padding: 0; font-size: 12px; }
+
+.run-status { font-weight: 600; margin: 6px 0; }
+.bar { height: 10px; border-radius: 5px; background: #eaeef2; overflow: hidden; }
+.bar span { display: block; height: 100%; width: 0; background: #1f883d; transition: width 0.3s; }
+.counters { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 12px 0; }
+.counters div { padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; }
+.counters dt { font-size: 11px; text-transform: uppercase; color: #57606a; }
+.counters dd { margin: 0; font-size: 20px; font-weight: 600; }
+.retry { color: #9a6700; }
+.error-line { color: #a40e26; }
+#failures { font-size: 12px; margin: 4px 0 0 18px; padding: 0; }
+
+@media (prefers-color-scheme: dark) {
+  body { color: #e6edf3; background: #0d1117; }
+  h2, .muted, .field, .counters dt { color: #8b949e; }
+  input, select, textarea { border-color: #6e7681; }
+  #file-summary, .counters div { border-color: #30363d; }
+  .bar { background: #30363d; }
+  #message { background: #0c2d6b; }
+  #message.ok { background: #033a16; }
+  #message.warn { background: #4d2d00; }
+  #message.error { background: #5a1e1e; }
+  .retry { color: #d29922; }
+  .error-line { color: #ffa198; }
+  a { color: #58a6ff; }
+}

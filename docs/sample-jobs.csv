@@ -1,0 +1,4 @@
+title,company,url,location,employment type,remote,skills,posted date,salary,description
+Product Designer,Example Co,https://careers.example.com/jobs/101,Berlin,Full-time,hybrid,figma;sketch,2026-10-01,"EUR 60,000 - 70,000","<p>Design <b>delightful</b> products.</p>"
+Data Analyst,Example Co,https://careers.example.com/jobs/102,Remote,Contract,yes,sql;python,2026-10-05,,Analyse data and build dashboards.
+Technical Writer,Example Co,https://careers.example.com/jobs/103,London,Part-time,no,,2026-10-10,,Write clear documentation.
