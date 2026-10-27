@@ -140,7 +140,7 @@ test("SCHEMA_STATUS is available to the extension's own pages only", async () =>
     getClient: () => client, checkConfig: () => ({ ok: true }), isTrustedSender: (s) => s && s.url && s.url.startsWith(`chrome-extension://${EXT}/`),
     withSession: (fn) => fn(client),
   });
-  assert.deepEqual(await handle({ type: "SCHEMA_STATUS" }, { id: EXT, url: `chrome-extension://${EXT}/src/popup/popup.html` }), { ok: true, detailColumns: false });
+  assert.deepEqual(await handle({ type: "SCHEMA_STATUS" }, { id: EXT, url: `chrome-extension://${EXT}/src/popup/popup.html` }), { ok: true, detailColumns: false, multiProvider: false });
   assert.equal((await handle({ type: "SCHEMA_STATUS" }, { id: EXT, url: "https://www.linkedin.com/jobs/" })).error.code, "PERMISSION");
 });
 
@@ -250,4 +250,12 @@ test("savedDetailStatus: read-only lookup by LinkedIn job id, applied-schema col
   assert.deepEqual(ops.in, ["linkedin_job_id", ["4400000001", "4400000002"]]);
   assert.ok(!seen[0].some(([k]) => ["insert", "update", "delete", "rpc"].includes(k)));
   assert.deepEqual(await savedDetailStatus(client, []), {});
+});
+
+test("a whole-paragraph responsibility is stored in full (up to 2000 characters), not cut at 500", () => {
+  const para = "As an Engineer in the team, you will take part in the design of large systems. ".repeat(9).trim(); // ~700 chars
+  const row = toRow(detailJob({ responsibilities: [para], qualifications: ["q".repeat(2500)], preferredQualifications: [para] })).row;
+  assert.equal(row.responsibilities[0].length, para.length);
+  assert.equal(row.preferred_qualifications[0].length, para.length);
+  assert.equal(row.qualifications[0].length, 2000, "an absurdly long single item is still bounded");
 });

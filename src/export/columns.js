@@ -21,9 +21,11 @@ export const periodLabel = (p) => PERIOD_LABELS[p] || "";
 export function extractionLabel(j) {
   if (!j) return "";
   if (j.extractionStatus === "complete") return "Complete";
-  if (j.extractionStatus === "partial") return j.hasFullDetail || j.source === "detail" ? "Partial" : "Partial (card only)";
+  // Imported / API rows have no list "cards": partial means a field such as the description was missing in the source.
+  const linkedIn = !j.provider || j.provider === "linkedin";
+  if (j.extractionStatus === "partial") return !linkedIn || j.hasFullDetail || j.source === "detail" ? "Partial" : "Partial (card only)";
   if (j.hasFullDetail || j.source === "detail") return "Full details (not graded)";
-  return j.source === "card" ? "Partial (card only)" : "";
+  return j.source === "card" && linkedIn ? "Partial (card only)" : "";
 }
 
 const FIELD_LABELS = {
@@ -85,7 +87,7 @@ export const EXPORT_COLUMNS = Object.freeze([
   // E. Tracking metadata
   { key: "extractionStatus", header: "Extraction status", width: 18, get: (j) => extractionLabel(j) },
   { key: "extractionWarnings", header: "Extraction warnings", width: 40, get: (j) => (Array.isArray(j.extractionWarnings) ? j.extractionWarnings.map(warningLabel).filter(Boolean).join("; ") : "") },
-  { key: "source", header: "Captured from", width: 16, get: (j) => (j.hasFullDetail || j.source === "detail" ? "Full details" : j.source === "card" ? "List card only" : "") },
+  { key: "source", header: "Captured from", width: 16, get: (j) => (j.hasFullDetail ? "Full details" : j.provider && j.provider !== "linkedin" ? "Imported, no description" : j.source === "detail" ? "Full details" : j.source === "card" ? "List card only" : "") },
   { key: "createdAt", header: "First saved", width: 22, get: (j) => str(j.createdAt) },
   { key: "collectedAt", header: "Last checked", width: 22, get: (j) => str(j.collectedAt) },
   { key: "updatedAt", header: "Last updated", width: 22, get: (j) => str(j.updatedAt) },

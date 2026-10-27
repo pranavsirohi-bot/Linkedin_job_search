@@ -7,22 +7,38 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <h1>LinkedIn Job Saver</h1>
+    <header class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M9 3h6a2 2 0 0 1 2 2v1h3a2 2 0 0 1 2 2v4.5H2V8a2 2 0 0 1 2-2h3V5a2 2 0 0 1 2-2Zm0 3h6V5H9v1ZM2 14h8v1.5a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V14h8v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5Z"/></svg>
+      </span>
+      <div>
+        <h1>LinkedIn Job Saver</h1>
+        <p class="brand-sub">Save, search and export LinkedIn jobs</p>
+      </div>
+    </header>
+    <p id="stale-banner" class="error-line stale-banner" role="alert" hidden>
+      The extension was updated but not reloaded, so new features (like "Click through the jobs for me") will not work yet.
+      Open chrome://extensions, press the reload button on LinkedIn Job Saver, then refresh the LinkedIn tab (F5).
+    </p>
 
-    <section>
+    <section class="card card-page">
       <h2>Current page</h2>
-      <p id="page-status">Checking…</p>
+      <p id="page-status" class="page-status">Checking…</p>
     </section>
 
-    <section id="account">
+    <section id="account" class="card">
       <h2>Profile</h2>
       <p id="account-note" class="muted">Setting up your private profile…</p>
       <button id="btn-retry" type="button" hidden>Try again</button>
 
       <div id="profile" hidden>
-        <p>Private profile on this browser <span id="profile-id" class="muted"></span></p>
-        <p class="muted">Saved jobs: <span id="saved-count">–</span></p>
-        <button id="btn-open-library" type="button">Open saved jobs table</button>
+        <div class="profile-row">
+          <div>
+            <p>Private profile on this browser <span id="profile-id" class="muted"></span></p>
+            <p class="muted">Saved jobs: <span id="saved-count" class="saved-count">–</span></p>
+          </div>
+          <button id="btn-open-library" type="button" class="secondary">Open saved jobs table</button>
+        </div>
         <p class="muted small">
           No email or password. Your saved jobs are tied to this extension's data in this browser. If that data is
           cleared or the extension is removed, they cannot be recovered.
@@ -30,18 +46,35 @@
       </div>
     </section>
 
-    <section id="collect-section" hidden>
+    <section id="collect-section" class="card card-main" hidden>
       <h2>Auto-save</h2>
-      <button id="btn-start" type="button" class="primary">Start</button>
-      <button id="btn-stop" type="button" class="stop" disabled>Stop</button>
-      <button id="btn-save-job" type="button">Save open job only</button>
-      <label class="small option"><input id="opt-save-cards" type="checkbox" /> Also save list cards (title, company and
-        location only; marked "Card only")</label>
-      <p id="collect-hint" class="muted small">
-        Press Start once, then click each job in the LinkedIn list yourself. LinkedIn shows the full details of one job at
-        a time (on the right); each job you open is saved with its full details about two seconds after it appears.
-        The extension never clicks or navigates for you. Press Stop to end. Jobs already saved are updated, not duplicated.
-      </p>
+      <div class="options">
+        <label class="option switch-row">
+          <input id="opt-auto-click" type="checkbox" class="switch" checked />
+          <span><strong>Click through the jobs for me</strong>
+            <span class="option-sub">Opens every job one by one, then the next results page</span></span>
+        </label>
+        <p id="auto-click-error" class="error-line small" role="alert" hidden></p>
+        <label class="small option inline-option" id="opt-max-pages-row">Stop after <input id="opt-max-pages" type="number" min="1" max="100"
+          step="1" value="5" /> results pages</label>
+      </div>
+      <div class="btn-row">
+        <button id="btn-start" type="button" class="primary">Start</button>
+        <button id="btn-watch-pause" type="button" disabled>Pause</button>
+        <button id="btn-watch-resume" type="button" disabled>Resume</button>
+        <button id="btn-stop" type="button" class="stop" disabled>Stop</button>
+        <button id="btn-watch-retry" type="button" hidden>Retry</button>
+      </div>
+      <button id="btn-save-job" type="button" class="secondary block">Save open job only</button>
+      <details class="hint">
+        <summary class="small">How it works</summary>
+        <p id="collect-hint" class="muted small">
+          Press Start on a LinkedIn job search results page. With "Click through the jobs for me" ticked, the extension opens
+          each job itself, a few seconds apart, saves its full details and pages on; keep that LinkedIn tab open and visible.
+          Untick it to click the jobs yourself instead (you can switch while it runs). Press Stop to end. Jobs already saved
+          are updated, not duplicated.
+        </p>
+      </details>
 
       <div id="collect-progress" aria-live="polite">
         <p id="collect-status" class="run-status">Not started.</p>
@@ -50,33 +83,82 @@
           <div><dt>Pages</dt><dd id="k-pages">0</dd></div>
           <div><dt>Discovered</dt><dd id="k-discovered">0</dd></div>
           <div><dt>Processed</dt><dd id="k-processed">0</dd></div>
-          <div><dt>Full details</dt><dd id="k-full">0</dd></div>
-          <div><dt>Saved (new)</dt><dd id="k-saved">0</dd></div>
-          <div><dt>Already saved (updated)</dt><dd id="k-existing">0</dd></div>
+          <div class="tone-ok"><dt>Full details</dt><dd id="k-full">0</dd></div>
+          <div class="tone-ok"><dt>Saved (new)</dt><dd id="k-saved">0</dd></div>
+          <div class="tone-info"><dt>Already saved</dt><dd id="k-existing">0</dd></div>
           <div><dt>Skipped</dt><dd id="k-skipped">0</dd></div>
-          <div><dt>Partial</dt><dd id="k-partial">0</dd></div>
-          <div><dt>Failed</dt><dd id="k-failed">0</dd></div>
+          <div class="tone-warn"><dt>Partial</dt><dd id="k-partial">0</dd></div>
+          <div class="tone-bad"><dt>Failed</dt><dd id="k-failed">0</dd></div>
         </dl>
-        <p id="collect-job" class="small" hidden><strong id="job-state"></strong> <span id="job-name"></span></p>
-        <p id="collect-guide" class="small" hidden></p>
+        <p id="collect-job" class="small job-line" hidden><strong id="job-state"></strong> <span id="job-name"></span></p>
+        <p id="collect-guide" class="small guide-line" hidden></p>
+        <details id="job-list" hidden>
+          <summary class="small">Jobs on this page (<span id="job-count">0</span>)</summary>
+          <ul id="job-items" class="job-items small"></ul>
+        </details>
         <p id="collect-auto" class="muted small"></p>
         <p id="collect-detail" class="muted small" hidden></p>
         <p id="collect-error" class="error-line small" hidden></p>
       </div>
     </section>
 
-    <section id="download-section" hidden>
+    <section id="import-section" class="card" hidden>
+      <details id="import-details" class="panel panel-flat">
+        <summary><h2>Batch import (CSV / JSON)</h2></summary>
+        <p class="muted small">Process a file of jobs automatically: press Start import and every valid job is checked for duplicates and saved, a few at a time, until all are processed or you press Stop. Nothing is read from LinkedIn.</p>
+        <label class="small">Source <select id="import-source" disabled></select></label>
+        <p class="muted small">Only a file import is available. An authorised job-data API would appear in this list once one is configured.</p>
+        <label class="small">File (.csv or .json, up to 2 MB) <input id="import-file" type="file" accept=".csv,.json,text/csv,application/json" /></label>
+        <details class="small">
+          <summary>Paste instead (if choosing a file closes this popup)</summary>
+          <textarea id="import-paste" rows="4" maxlength="2000000" placeholder="Paste CSV or a JSON array of jobs"></textarea>
+          <button id="import-paste-btn" type="button">Use pasted text</button>
+        </details>
+        <label class="small">Maximum records <input id="import-max" type="number" min="1" max="500" value="200" /></label>
+        <p id="import-summary" class="small" hidden></p>
+        <p id="import-db-note" class="warn-line small" hidden>The database update needed for imported jobs (migrations 20261022000200 and 20261023000100) has not been applied, so Start import will refuse to run. See docs/SUPABASE_SETUP.md.</p>
+        <div class="btn-row">
+          <button id="import-start" type="button" class="primary" disabled>Start import</button>
+          <button id="import-pause" type="button" disabled>Pause</button>
+          <button id="import-resume" type="button" disabled>Resume</button>
+          <button id="import-stop" type="button" class="stop" disabled>Stop</button>
+          <button id="import-retry" type="button" hidden>Retry failed</button>
+          <button id="import-results" type="button" hidden>Download results</button>
+          <button id="import-dismiss" type="button" hidden>Clear result</button>
+        </div>
+        <div aria-live="polite">
+          <p id="import-status" class="run-status">Choose a CSV or JSON file of jobs.</p>
+          <div class="bar" id="import-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="import-fill"></span></div>
+          <dl class="counters">
+            <div><dt>Total</dt><dd id="ik-total">0</dd></div>
+            <div><dt>Processed</dt><dd id="ik-processed">0</dd></div>
+            <div><dt>Saved (new)</dt><dd id="ik-saved">0</dd></div>
+            <div><dt>Duplicates (updated)</dt><dd id="ik-duplicates">0</dd></div>
+            <div><dt>Partial</dt><dd id="ik-partial">0</dd></div>
+            <div><dt>Skipped</dt><dd id="ik-skipped">0</dd></div>
+            <div><dt>Failed</dt><dd id="ik-failed">0</dd></div>
+          </dl>
+          <p id="import-current" class="small" hidden></p>
+          <p id="import-error" class="error-line small" hidden></p>
+          <details id="import-failures" class="small" hidden><summary>Failed records</summary><ul id="import-failure-items" class="job-items"></ul></details>
+        </div>
+      </details>
+    </section>
+
+    <section id="download-section" class="card" hidden>
       <h2>Download</h2>
-      <button id="btn-download-csv" type="button">Download CSV</button>
+      <button id="btn-download-csv" type="button" class="secondary block">Download CSV</button>
       <p id="download-status" class="muted small" aria-live="polite">Exports every job you have saved, with all saved details (title, company, location, URL, description, ...).</p>
     </section>
 
     <p id="status" role="status" aria-live="polite" hidden></p>
 
-    <details id="tools" class="panel" hidden>
+    <details id="tools" class="panel card" hidden>
       <summary><h2>Selector check</h2></summary>
-      <button id="btn-diagnose" type="button">Run diagnostics</button>
-      <button id="btn-extract" type="button">Preview extraction</button>
+      <div class="btn-row">
+        <button id="btn-diagnose" type="button">Run diagnostics</button>
+        <button id="btn-extract" type="button">Preview extraction</button>
+      </div>
       <p class="muted">Read-only. Nothing is saved.</p>
     </details>
 

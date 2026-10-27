@@ -7,12 +7,12 @@
 //   withSession(fn)    -> runs fn(client) under the anonymous session (optional; built from getClient by default)
 //   ready              -> promise resolved once start-up recovery has run (run messages wait for it)
 //   watch              -> auto-save session (optional)
-//   isContentSender(s) -> true only for our content script in a LinkedIn tab (allowed to send PAGE_CHANGED, nothing else)
-import { MSG } from "../shared/messages.js";
+//   isContentSender(s) -> true only for our content script in a LinkedIn tab (allowed to send PAGE_CHANGED and PILOT_EVENT, nothing else)
+import { MSG, PROTOCOL } from "../shared/messages.js";
 import { RunError } from "../batch/run-state.js";
 import { ensureSession, recoverSession } from "../db/auth.js";
 import { DbError, ERR, toDbError } from "../db/errors.js";
-import { countJobs, deleteJob, detailColumnsAvailable, findDuplicates, getJob, listJobs, saveJobs, updateJob } from "../db/saved-jobs.js";
+import { countJobs, deleteJob, detailColumnsAvailable, findDuplicates, getJob, listJobs, providerColumnsAvailable, saveJobs, updateJob } from "../db/saved-jobs.js";
 
 const MAX_JOBS_PER_SAVE = 500;
 const MAX_RUN_PARAMS_CHARS = 4 * 1000 * 1000; // serialized size of the parameters sent to start a run
@@ -49,7 +49,7 @@ export function createHandlers({ getClient, checkConfig, isTrustedSender, isCont
   const authed = (fn) => (message) => withSession((client) => fn(client, message));
 
   const handlers = {
-    [MSG.PING]: async () => ({ ok: true, from: "service-worker", time: Date.now() }),
+    [MSG.PING]: async () => ({ ok: true, from: "service-worker", time: Date.now(), protocol: PROTOCOL }),
 
     // Ensures a session exists (reusing the stored one) and reports who we are. Called when the popup opens.
     [MSG.AUTH_STATUS]: async () => {
@@ -74,7 +74,7 @@ export function createHandlers({ getClient, checkConfig, isTrustedSender, isCont
     }),
     [MSG.UPDATE_JOB]: authed(async (client, m) => ({ ok: true, job: await updateJob(client, m.id, m.patch) })),
     [MSG.DELETE_JOB]: authed(async (client, m) => ({ ok: true, ...(await deleteJob(client, m.id)) })),
-    [MSG.SCHEMA_STATUS]: authed(async (client) => ({ ok: true, detailColumns: await detailColumnsAvailable(client) })),
+    [MSG.SCHEMA_STATUS]: authed(async (client) => ({ ok: true, detailColumns: await detailColumnsAvailable(client), multiProvider: await providerColumnsAvailable(client) })),
   };
 
   if (runs) {
@@ -96,6 +96,7 @@ export function createHandlers({ getClient, checkConfig, isTrustedSender, isCont
       [MSG.RUN_PAUSE]: async () => { await ready; await runs.pause(); return status(); },
       [MSG.RUN_RESUME]: async () => { await ready; await runs.resume(); return status(); },
       [MSG.RUN_STOP]: async (m) => { await ready; await runs.stop(typeof m.runId === "string" ? m.runId : undefined); return status(); },
+      [MSG.RUN_RETRY_FAILED]: async () => { await ready; await runs.retryFailed(); return status(); },
       [MSG.RUN_DISMISS]: async (m) => { await ready; await runs.dismiss(typeof m.runId === "string" ? m.runId : undefined); return status(); },
     });
   }
@@ -111,20 +112,33 @@ export function createHandlers({ getClient, checkConfig, isTrustedSender, isCont
         await ready;
         if (!Number.isInteger(m.tabId) || m.tabId < 0) throw new RunError("invalid-tab", "Open a LinkedIn jobs page (search results or a job), then press Start.");
         await watchPreflight(); // fail fast (session / connection) before anything is watched
-        await watch.start({ tabId: m.tabId, pageUrl: typeof m.pageUrl === "string" ? m.pageUrl : "", saveCards: m.saveCards === true });
+        await watch.start({ tabId: m.tabId, pageUrl: typeof m.pageUrl === "string" ? m.pageUrl : "", autoClick: m.autoClick === true, maxPages: m.maxPages });
         return wstatus();
       },
       [MSG.WATCH_STOP]: async (m) => { await ready; await watch.stop(typeof m.sessionId === "string" ? m.sessionId : undefined); return wstatus(); },
+      [MSG.WATCH_PAUSE]: async (m) => { await ready; await watch.pause(typeof m.sessionId === "string" ? m.sessionId : undefined); return wstatus(); },
+      [MSG.WATCH_RESUME]: async (m) => { await ready; await watch.resume(typeof m.sessionId === "string" ? m.sessionId : undefined); return wstatus(); },
+      [MSG.WATCH_RETRY]: async (m) => { await ready; await watch.retry(typeof m.sessionId === "string" ? m.sessionId : undefined); return wstatus(); },
+      [MSG.WATCH_SET_AUTOCLICK]: async (m) => {
+        await ready;
+        await watch.setAutoClick(typeof m.sessionId === "string" ? m.sessionId : undefined, { autoClick: m.autoClick === true, maxPages: m.maxPages });
+        return wstatus();
+      },
       // Data-free ping; the message body is ignored, only the sender's tab id is used.
       // "ready" is the only field read: the content script saw the opened job's details render.
       [MSG.PAGE_CHANGED]: async (m, sender) => { await ready; return { ok: true, watching: await watch.pageChanged(sender.tab.id, { ready: m.ready === true }) }; },
+      // Auto-click progress from the content script; only the sender's tab id, "event" and "reason" are read.
+      [MSG.PILOT_EVENT]: async (m, sender) => {
+        await ready;
+        return { ok: true, ...(await watch.pilotEvent(sender.tab.id, { event: typeof m.event === "string" ? m.event : "", reason: typeof m.reason === "string" ? m.reason : "" })) };
+      },
     });
   }
 
   // Everything except these needs a configured Supabase project. (Pausing, stopping and reading a run work offline.)
-  const NO_CONFIG_NEEDED = new Set([MSG.PING, MSG.AUTH_STATUS, MSG.RUN_STATUS, MSG.RUN_PAUSE, MSG.RUN_RESUME, MSG.RUN_STOP, MSG.RUN_DISMISS, MSG.WATCH_STATUS, MSG.WATCH_STOP, MSG.PAGE_CHANGED]);
-  // The only message a content script may send.
-  const CONTENT_SCRIPT_TYPES = new Set([MSG.PAGE_CHANGED]);
+  const NO_CONFIG_NEEDED = new Set([MSG.PING, MSG.AUTH_STATUS, MSG.RUN_STATUS, MSG.RUN_PAUSE, MSG.RUN_RESUME, MSG.RUN_STOP, MSG.RUN_DISMISS, MSG.WATCH_STATUS, MSG.WATCH_STOP, MSG.WATCH_PAUSE, MSG.PAGE_CHANGED, MSG.PILOT_EVENT]);
+  // The only messages a content script may send.
+  const CONTENT_SCRIPT_TYPES = new Set([MSG.PAGE_CHANGED, MSG.PILOT_EVENT]);
 
   async function handle(message, sender) {
     const type = message && message.type;

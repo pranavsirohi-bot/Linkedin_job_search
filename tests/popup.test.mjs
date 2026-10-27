@@ -78,16 +78,17 @@ async function openPopup({ configured = true, user = USER, pageUrl = "https://ww
 }
 
 // ================================================================== layout of the simplified popup
-test("the popup is simple: Start, Save open job, progress, Download CSV; no batch, Greenhouse or import controls", async () => {
+test("the popup is simple: Start, Save open job, progress, Download CSV, one batch-import panel; no Greenhouse or board tokens", async () => {
   const p = await openPopup();
   for (const id of ["btn-start", "btn-stop", "btn-save-job", "collect-status", "collect-bar", "k-discovered", "k-processed", "k-saved", "k-existing", "k-skipped", "k-failed", "btn-download-csv", "btn-open-library", "btn-diagnose", "btn-extract"]) assert.ok(p.$(id), id);
   for (const id of ["btn-save-all", "batch-section", "source", "boards", "file", "paste-text", "max-jobs", "btn-pause", "btn-open-batch", "run-line"]) assert.equal(p.$(id), null, `${id} removed`);
   const text = p.w.document.body.textContent;
-  assert.doesNotMatch(text, /Greenhouse|board token|CSV \/ JSON|Import/i);
+  assert.doesNotMatch(text, /Greenhouse|board token/i);
+  assert.ok(p.$("import-section") && p.$("import-start") && p.$("import-pause") && p.$("import-resume") && p.$("import-stop"), "the batch-import panel (a permitted CSV / JSON import)");
   assert.equal(p.$("collect-section").hidden, false);
   assert.equal(p.$("download-section").hidden, false);
   assert.equal(p.$("btn-start").disabled, false);
-  assert.match(p.$("collect-hint").textContent, /never clicks or navigates for you/);
+  assert.match(p.$("collect-hint").textContent, /the extension opens\s+each job itself/);
   assert.equal(p.$("btn-stop").disabled, true, "Stop is disabled when no run is active");
   assert.ok(!p.types().some((t) => t === "RUN_START" || t === "WATCH_START"), "opening the popup never starts anything");
 });
@@ -225,7 +226,7 @@ test("setup failure shows Try again; retry recovers", async () => {
 test("opening the popup asks for the session once and sends no credentials or user ids", async () => {
   const p = await openPopup();
   assert.equal(p.types().filter((t) => t === "AUTH_STATUS").length, 1);
-  assert.deepEqual([...new Set(p.types())].sort(), ["AUTH_STATUS", "COUNT_SAVED", "PING", "WATCH_STATUS"]);
+  assert.deepEqual([...new Set(p.types())].sort(), ["AUTH_STATUS", "COUNT_SAVED", "PING", "RUN_STATUS", "SCHEMA_STATUS", "WATCH_STATUS"]);
   assert.doesNotMatch(JSON.stringify(p.sent), /password|credentials|user_id|userId/);
 });
 

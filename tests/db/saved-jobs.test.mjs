@@ -410,12 +410,21 @@ test("findDuplicatesBy filters by provider and valid ids, chunks, and validates 
   await assert.rejects(findDuplicatesBy(client, "Bad Provider", ["a"]), (e) => e.code === ERR.VALIDATION);
 });
 
-test("list columns do NOT select provider/external_id (the optional migration is not applied); provider filter is still validated", async () => {
-  const client = fakeClient({ onQuery: { data: [], count: 0, error: null } });
+test("list columns ask for provider/external_id first and step down when the database lacks them (migration 20261023000100 not applied); provider filter is still validated", async () => {
+  // A database migrated through 20261022000200 only: it knows the detail columns but not provider / external_id.
+  const seen = [];
+  const client = fakeClient({ onQuery: (ops) => {
+    const cols = ops.find((o) => o[0] === "select")[1];
+    seen.push(cols);
+    return /\bprovider\b/.test(cols) ? { data: null, error: { code: "42703", message: "column saved_jobs.provider does not exist" } } : { data: [], count: 0, error: null };
+  } });
   await listJobs(client);
-  const cols = client.calls[0][1][1].split(",");
-  assert.ok(!cols.includes("provider") && !cols.includes("external_id"), cols.join(","));
-  assert.ok(cols.includes("linkedin_job_id") && cols.includes("application_status"));
+  await listJobs(client);
+  assert.equal(seen.length, 3, "one failed attempt with provider columns, then the detail-level columns; remembered afterwards");
+  assert.ok(seen[0].split(",").includes("provider") && seen[0].split(",").includes("external_id"));
+  const detailLevel = seen[1].split(",");
+  assert.ok(!detailLevel.includes("provider") && detailLevel.includes("extraction_status") && detailLevel.includes("linkedin_job_id"));
+  assert.equal(seen[2], seen[1]);
   await assert.rejects(listJobs(client, { provider: "Bad Provider" }), (e) => e.code === ERR.VALIDATION);
 });
 test("fromRow exposes provider and external id; LinkedIn rows keep jobId = LinkedIn id", () => {

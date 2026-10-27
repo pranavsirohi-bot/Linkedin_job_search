@@ -81,7 +81,10 @@ export function createRunController({
       s.pending = []; // nothing more will be processed; saved jobs are unaffected
       return s;
     });
-    await store.clearPayload();
+    // The run's input data (e.g. imported records) is kept while there are failed records to retry; dismissing the run or
+    // starting another one clears it.
+    const after = await store.load();
+    if (!(after && Array.isArray(after.failedRefs) && after.failedRefs.length)) await store.clearPayload();
     if (alarms) await alarms.cancel();
   }
 
@@ -175,6 +178,7 @@ export function createRunController({
       st.counters.discovered += taken.length;
       st.counters.duplicates += duplicates;
       st.counters.skipped += invalid;
+      if (Number.isInteger(res.total) && res.total >= 0) st.sourceTotal = Math.min(res.total, st.config.maxJobs);
       st.page += 1;
       st.seenCursors.push(cursorKey);
       if (st.seenCursors.length > HARD_LIMITS.maxSeenCursors) st.seenCursors.shift();
@@ -222,7 +226,7 @@ export function createRunController({
         try { rec = source.normalize(raw, ref); } catch { rec = null; }
         if (!rec) { outcomes.push({ ref, kind: "failed", reason: "the job record was malformed" }); consec += 1; continue; }
         records.push(rec);
-        outcomes.push({ ref, kind: "ok" });
+        outcomes.push({ ref, kind: "ok", rec });
         consec = 0;
       } catch (e) {
         if (e instanceof Aborted) { aborted = true; break; }
@@ -254,14 +258,23 @@ export function createRunController({
       if (!st) return null;
       const done = new Set();
       let failedNow = 0;
+      // What the database said about this batch: per record when it can be told, never guessed for a mixed batch.
+      const rejectedAt = new Map(((saved && saved.rejected) || []).map((r) => [String(r && r.jobId), String(r && r.reason)]));
+      const stored = outcomes.filter((o) => o.kind === "ok" && !rejectedAt.has(String(o.ref.externalId))).length;
+      const allExisting = !!saved && stored > 0 && (Number(saved.duplicates) || 0) >= stored;
+      const allNew = !!saved && stored > 0 && (Number(saved.inserted) || 0) >= stored;
       for (const o of outcomes) {
         if (o.kind === "ok") {
-          if (saved) done.add(o.ref.externalId);
-          else if (saveFailedItems) { done.add(o.ref.externalId); st.counters.failed++; failedNow++; pushFailure(st, o.ref, describe(saveError)); }
+          if (saved) {
+            done.add(o.ref.externalId);
+            if (rejectedAt.has(String(o.ref.externalId))) logResult(st, o.ref, "skipped", `rejected: ${rejectedAt.get(String(o.ref.externalId))}`);
+            else if (o.rec && o.rec.extractionStatus === "partial") logResult(st, o.ref, "partial", (o.rec.extractionWarnings || []).join(", "));
+            else logResult(st, o.ref, allExisting ? "updated" : allNew ? "new" : "saved");
+          } else if (saveFailedItems) { done.add(o.ref.externalId); st.counters.failed++; failedNow++; pushFailure(st, o.ref, describe(saveError)); logResult(st, o.ref, "failed", describe(saveError)); }
         } else {
           done.add(o.ref.externalId);
-          if (o.kind === "skipped") st.counters.skipped++;
-          else { st.counters.failed++; failedNow++; pushFailure(st, o.ref, o.reason); }
+          if (o.kind === "skipped") { st.counters.skipped++; logResult(st, o.ref, "skipped", o.reason); }
+          else { st.counters.failed++; failedNow++; pushFailure(st, o.ref, o.reason); logResult(st, o.ref, "failed", o.reason); }
         }
       }
       st.pending = st.pending.filter((r) => !done.has(r.externalId));
@@ -271,6 +284,9 @@ export function createRunController({
         st.counters.duplicates += Number(saved.duplicates) || 0;
         st.counters.skipped += (saved.rejected || []).length;
         for (const r of saved.rejected || []) pushFailure(st, { externalId: String(r.jobId || "?") }, `rejected: ${r.reason}`, false);
+        // Stored, but with a required detail missing (e.g. no description): reported honestly as partial.
+        const rejectedIds = new Set((saved.rejected || []).map((r) => String(r && r.jobId)));
+        st.partialSaved = (st.partialSaved || 0) + records.filter((r) => r && r.extractionStatus === "partial" && !rejectedIds.has(String(r.externalId != null ? r.externalId : r.jobId))).length;
       }
       // Failures in a row, evaluated in processing order: a success resets the streak, a failure extends it.
       let streak = st.consecutiveFailures;
@@ -301,9 +317,23 @@ export function createRunController({
     if (deferred) throw deferred;
   }
 
-  function pushFailure(st, ref, reason, count = true) { // eslint-disable-line no-unused-vars
+  function pushFailure(st, ref, reason, count = true) {
     st.failures.push({ externalId: ref.externalId, reason: String(reason).slice(0, 200), at: now() });
     if (st.failures.length > HARD_LIMITS.maxStoredFailures) st.failures.shift();
+    // Records that FAILED (a fetch or save error: retrying may help) are all remembered; ones the mapper rejected are not.
+    if (count) {
+      st.failedRefs = st.failedRefs || [];
+      if (st.failedRefs.length < HARD_LIMITS.maxFailedRecords && !st.failedRefs.some((f) => f.externalId === ref.externalId)) {
+        st.failedRefs.push({ externalId: ref.externalId, title: String(ref.title || "").slice(0, 100), reason: String(reason).slice(0, 200) });
+      }
+    }
+  }
+
+  // One line per record in the run's outcome log (bounded).
+  function logResult(st, ref, outcome, reason = "") {
+    st.results = st.results || [];
+    st.results.push({ id: String(ref.externalId).slice(0, 200), t: String(ref.title || "").slice(0, 100), o: outcome, r: String(reason).slice(0, 150) });
+    if (st.results.length > HARD_LIMITS.maxResults) st.results.shift();
   }
 
   // ------------------------------------------------------------- the driver loop
@@ -389,20 +419,21 @@ export function createRunController({
   }
 
   // ------------------------------------------------------------- public API
-  async function start({ sourceId, params, limits } = {}) {
+  async function start({ sourceId, params, limits, retryOf } = {}) {
     const source = sources.get(sourceId);
     if (!source) throw new RunError("unknown-source", "Choose a job source.");
     const lim = validateLimits(limits || {});
     if (!lim.ok) throw new RunError("invalid-limits", lim.errors.join(" "));
     const v = source.validateParams(params || {}, { maxJobs: lim.limits.maxJobs });
     if (!v.ok) throw new RunError("invalid-params", v.errors.join(" "));
-    if (preflight) await preflight();
+    if (preflight) await preflight({ sourceId }); // may refuse the run (not configured, database not ready for this source)
 
     const light = { ...v.params };
     const heavy = {};
     for (const k of source.heavyParams) { heavy[k] = light[k]; delete light[k]; }
     const runId = newId();
     const state = newRunState({ runId, now: now(), sourceId, params: light, limits: lim.limits });
+    state.retryOf = typeof retryOf === "string" ? retryOf.slice(0, 80) : null;
     // A source may ask for smaller save batches (faster progress); never larger than the hard limit.
     if (Number.isInteger(source.detailBatch) && source.detailBatch >= 1) state.config.detailBatch = Math.min(source.detailBatch, HARD_LIMITS.detailBatch);
 
@@ -424,6 +455,28 @@ export function createRunController({
     flags.stop = false;
     ensureDriver();
     return summarize(await store.load());
+  }
+
+  // Run again, with only the records that FAILED in the last (finished) run. A new run replaces the finished one in the single
+  // run slot; the source rebuilds its input from the data the finished run kept.
+  async function retryFailed() {
+    const s = await store.load();
+    if (!s) throw new RunError("no-run", "There is no run.");
+    if (!TERMINAL_STATUSES.has(s.status)) throw new RunError("run-active", "Stop or finish the current run before retrying its failed records.");
+    const source = sources.get(s.sourceId);
+    if (!source) throw new RunError("unknown-source", "The source of that run is no longer available.");
+    if (typeof source.retryParams !== "function") throw new RunError("retry-unsupported", "This source cannot retry failed records. Run it again instead.");
+    const ids = (s.failedRefs || []).map((f) => f.externalId);
+    if (!ids.length) throw new RunError("nothing-to-retry", "There are no failed records to retry.");
+    const heavy = (await store.loadPayload(s.runId)) || {};
+    const params = source.retryParams({ ...s.params, ...heavy }, ids);
+    if (!params) throw new RunError("retry-unavailable", "The original records are no longer available. Import the file again.");
+    return start({
+      sourceId: s.sourceId,
+      params,
+      limits: { maxJobs: ids.length, maxPages: Math.ceil(ids.length / Math.max(s.config.pageSize, 1)) + 1, pageSize: s.config.pageSize },
+      retryOf: s.runId,
+    });
   }
 
   async function pause() {
@@ -533,5 +586,5 @@ export function createRunController({
     ensureDriver();
   }
 
-  return { start, pause, resume, stop, dismiss, getState, recover, wake, whenIdle: () => driver || Promise.resolve() };
+  return { start, pause, resume, stop, dismiss, retryFailed, getState, recover, wake, whenIdle: () => driver || Promise.resolve() };
 }

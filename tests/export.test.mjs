@@ -214,3 +214,13 @@ test("export is read-only: the export modules never reference any delete/update/
     assert.doesNotMatch(src, /deleteJob|DELETE_JOB|updateJob|UPDATE_JOB|saveJobs|SAVE_JOBS|\.delete\(|\.update\(/, f);
   }
 });
+
+test("export: an imported row without a description is not described as 'Full details' or as a list card", () => {
+  const get = (j) => EXPORT_COLUMNS.find((c) => c.key === "source").get(j);
+  assert.equal(get({ provider: "file", source: "detail", hasFullDetail: false }), "Imported, no description");
+  assert.equal(get({ provider: "file", source: "detail", hasFullDetail: true }), "Full details");
+  assert.equal(get({ provider: "linkedin", source: "card", hasFullDetail: false }), "List card only");
+  assert.equal(get({ source: "detail", hasFullDetail: false }), "Full details", "older LinkedIn rows keep their wording");
+  const status = EXPORT_COLUMNS.find((c) => c.key === "extractionStatus").get;
+  assert.equal(status({ provider: "file", source: "detail", hasFullDetail: false, extractionStatus: "partial" }), "Partial");
+});

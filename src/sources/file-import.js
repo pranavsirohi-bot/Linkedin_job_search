@@ -102,14 +102,19 @@ export function sanitizeRecord(raw, now = new Date()) {
   const description = htmlToText(f.description, { maxLength: FILE_LIMITS.maxDescriptionChars });
   const postedDateApprox = toDate(f.postedDate);
 
+  const company = plainLine(f.company, 500);
+  // An imported row is only as complete as the file: no description or no company means it is partial, and says so.
+  const missing = [!description && "missing:description", !company && "missing:company"].filter(Boolean);
   return {
     ok: true,
     record: {
       provider: "file",
+      extractionStatus: missing.length ? "partial" : "complete",
+      extractionWarnings: missing,
       externalId,
       url,
       title,
-      company: plainLine(f.company, 500),
+      company,
       companyUrl: safeHttpsUrl(String(f.companyUrl || "").trim()) || "",
       location: plainLine(f.location, 500),
       postedText: postedDateApprox ? `Posted ${postedDateApprox}` : "",
@@ -217,6 +222,13 @@ export function createFileSource() {
     },
     describeCursor(cursor) {
       return `from record ${cursor.o + 1}`;
+    },
+    // Input for "retry failed records": the same (already validated) records, reduced to the ones that failed.
+    retryParams(params, failedIds) {
+      const ids = new Set((failedIds || []).map(String));
+      const records = (params && Array.isArray(params.records) ? params.records : []).filter((r) => r && ids.has(String(r.externalId)));
+      if (!records.length) return null;
+      return { records, fileName: plainLine((params && params.fileName) || "", 120), stats: { total: records.length, valid: records.length, invalid: 0, duplicatesInFile: 0, overLimit: 0 } };
     },
     async search(params, cursor, { pageSize }) {
       const offset = cursor && Number.isInteger(cursor.o) && cursor.o >= 0 ? cursor.o : 0;

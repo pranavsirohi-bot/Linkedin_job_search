@@ -4,7 +4,7 @@
 import { DbError, ERR, toDbError } from "./errors.js";
 import {
   APPLICATION_STATUSES, EMPLOYMENT_TYPES, EXTERNAL_ID_RE, FULL_COLUMNS, JOB_ID_RE, PROVIDER_RE, LIST_COLUMNS, WORKPLACE_TYPES,
-  LEGACY_FULL_COLUMNS, LEGACY_LIST_COLUMNS, escapeLike, fromRow, mergeRows, text, toRow,
+  DETAIL_FULL_COLUMNS, DETAIL_LIST_COLUMNS, LEGACY_FULL_COLUMNS, LEGACY_LIST_COLUMNS, PROVIDER_COLUMNS, escapeLike, fromRow, mergeRows, text, toRow,
 } from "./job-mapper.js";
 
 const TABLE = "saved_jobs";
@@ -26,37 +26,64 @@ async function call(promiseFactory) {
 }
 
 // ---------------------------------------------------------------- schema compatibility
-// The extra detail columns exist only after migration 20261022000200 is applied. Reads ask for them first; if the
-// database answers "column does not exist", this client switches to the applied columns for the rest of its life.
-const legacySchema = new WeakMap(); // client -> true when the detail columns are missing
+// What the database has been migrated to. Reads ask for the newest columns first; if the database answers "column does
+// not exist" the client steps down a level and remembers it (for a minute, so a migration applied meanwhile is noticed):
+//   "full"   through 20261023000100 (provider + external_id: jobs from other sources can be stored)
+//   "detail" through 20261022000200 (extra detail fields)
+//   "legacy" the three originally applied migrations (LinkedIn jobs only)
+const LEVEL_TTL_MS = 60 * 1000;
+const levels = new WeakMap(); // client -> { level, at }
+const COLUMNS = {
+  full: [LIST_COLUMNS, FULL_COLUMNS],
+  detail: [DETAIL_LIST_COLUMNS, DETAIL_FULL_COLUMNS],
+  legacy: [LEGACY_LIST_COLUMNS, LEGACY_FULL_COLUMNS],
+};
 const isMissingColumn = (e) => !!e && (String(e.code) === "42703" || /column [^ ]+ does not exist/i.test(String(e.message || "")));
+const missingColumnName = (e) => { const m = String((e && e.message) || "").match(/column (?:\w+\.)?(\w+) does not exist/i); return m ? m[1] : ""; };
+// Which level a "column does not exist" answer points to: only the provider columns missing -> "detail"; any other -> "legacy".
+const levelAfter = (level, e) => (level === "full" && PROVIDER_COLUMNS.includes(missingColumnName(e)) ? "detail" : "legacy");
+function knownLevel(client) {
+  const k = levels.get(client);
+  if (!k) return null;
+  if (k.level !== "full" && Date.now() - k.at > LEVEL_TTL_MS) { levels.delete(client); return null; }
+  return k.level;
+}
+const setLevel = (client, level) => levels.set(client, { level, at: Date.now() });
 
 async function selectRows(client, full, build) {
-  const legacy = legacySchema.get(client) === true;
-  const cols = legacy ? (full ? LEGACY_FULL_COLUMNS : LEGACY_LIST_COLUMNS) : full ? FULL_COLUMNS : LIST_COLUMNS;
-  let res;
-  try {
-    res = await build(cols);
-  } catch (e) {
-    throw toDbError(e);
+  let level = knownLevel(client) || "full";
+  for (;;) {
+    let res;
+    try {
+      res = await build(COLUMNS[level][full ? 1 : 0]);
+    } catch (e) {
+      throw toDbError(e);
+    }
+    if (res && res.error && level !== "legacy" && isMissingColumn(res.error)) {
+      level = levelAfter(level, res.error);
+      setLevel(client, level);
+      continue;
+    }
+    return unwrap(res);
   }
-  if (res && res.error && !legacy && isMissingColumn(res.error)) {
-    legacySchema.set(client, true);
-    return selectRows(client, full, build);
-  }
-  return unwrap(res);
 }
 
-// true when the database can store the extra detail fields (migration 20261022000200 applied). Cached per client.
-export async function detailColumnsAvailable(client) {
-  if (legacySchema.has(client)) return !legacySchema.get(client);
-  const res = await call(() => client.from(TABLE).select("extraction_status").range(0, 0)).then(
-    () => ({ ok: true }),
-    (e) => (isMissingColumn(e.cause || e) ? { ok: false } : Promise.reject(e)),
+// Probe once (cheap, read-only): which migrations does this database have? Cached per client.
+export async function schemaLevel(client) {
+  const known = knownLevel(client);
+  if (known) return known;
+  // extraction_status comes first so a missing detail column is reported before a missing provider column.
+  const level = await call(() => client.from(TABLE).select(`extraction_status,${PROVIDER_COLUMNS.join(",")}`).range(0, 0)).then(
+    () => "full",
+    (e) => (isMissingColumn(e.cause || e) ? levelAfter("full", e.cause || e) : Promise.reject(e)),
   );
-  legacySchema.set(client, !res.ok);
-  return res.ok;
+  setLevel(client, level);
+  return level;
 }
+// true when the database can store the extra detail fields (migration 20261022000200 applied).
+export const detailColumnsAvailable = async (client) => (await schemaLevel(client)) !== "legacy";
+// true when jobs from other sources (imports, APIs) can be stored (migration 20261023000100 applied).
+export const providerColumnsAvailable = async (client) => (await schemaLevel(client)) === "full";
 
 function assertUuid(id) {
   if (typeof id !== "string" || !UUID_RE.test(id)) throw new DbError(ERR.VALIDATION, "Invalid job id.");

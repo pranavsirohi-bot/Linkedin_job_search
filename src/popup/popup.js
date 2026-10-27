@@ -1,9 +1,10 @@
-import { MSG } from "../shared/messages.js";
+import { MSG, PROTOCOL } from "../shared/messages.js";
 import { classifyLinkedInUrl } from "../shared/page-type.js";
 import { csvBlob } from "../export/csv.js";
 import { mappingReport } from "../db/job-mapper.js";
 import { downloadBlob, exportFileName, fetchAllJobs } from "../export/download.js";
 import { WATCH_KEY, summarizeWatch } from "../watch/watch-session.js";
+import { initImportPanel } from "./import-panel.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,6 +24,8 @@ const PAGE_LABELS = {
 // starting: Start was pressed and the worker has not answered yet
 // note:     guidance shown when there is no session to display
 const state = { user: null, configured: false, onLinkedIn: false, busy: false, pageUrl: "", tabId: null, watch: null, starting: false, note: null, countedKey: null, automaticSources: [] };
+
+let importPanel = null; // created below, once its helpers exist
 
 // ---------------------------------------------------------------- helpers
 async function activeTab() {
@@ -78,17 +81,22 @@ async function showPageStatus() {
     state.tabId = Number.isInteger(tab?.id) ? tab.id : null;
     state.onLinkedIn = type !== "not-linkedin" && type !== "unknown";
     let text = PAGE_LABELS[type] ?? PAGE_LABELS.unknown;
+    let tone = "off"; // the status dot: ok (connected) | warn (LinkedIn, script not answering) | off (not LinkedIn)
     if (state.onLinkedIn) {
       try {
         const res = await chrome.tabs.sendMessage(tab.id, { type: MSG.GET_PAGE_INFO });
         text += res?.ok ? " — content script connected" : " — no response";
+        tone = res?.ok ? "ok" : "warn";
       } catch {
         text += " — content script not active (reload the tab)";
+        tone = "warn";
       }
     }
     el.textContent = text;
+    el.dataset.tone = tone;
   } catch (err) {
     el.textContent = "Could not read current tab.";
+    el.dataset.tone = "warn";
     console.error("[LJS]", err);
   }
   $("tools").hidden = !state.onLinkedIn;
@@ -104,6 +112,7 @@ function renderAccount() {
   $("profile").hidden = !ready;
   $("collect-section").hidden = !ready;
   $("download-section").hidden = !ready;
+  if (importPanel) importPanel.render(); // shows / hides itself with the same readiness rule
   if (!state.busy) $("btn-download-csv").disabled = false;
   if (ready && !state.onLinkedIn && !state.note && !state.watch) state.note = { text: "Open a LinkedIn jobs page (search results or a job), then press Start.", kind: "warn" };
   if (user) $("profile-id").textContent = `(${user.id.slice(0, 8)}…)`;
@@ -192,37 +201,53 @@ function failSave(res, extracted) {
 // ---------------------------------------------------------------- Start / Stop: auto-save while the user browses
 // Start turns on auto-save for this LinkedIn tab. From then on the service worker saves the jobs on every page the
 // USER opens in that tab (clicking Next, scrolling, opening a job), a few at a time, until Stop. This popup only
-// displays the persisted session state, so closing it neither stops nor loses anything. The extension never clicks,
-// scrolls, opens or navigates anything on LinkedIn.
+// displays the persisted session state, so closing it neither stops nor loses anything. The extension clicks, scrolls
+// and pages on LinkedIn only when "Click through the jobs for me" is ticked (auto-click, see content-script.js).
 const isWatching = (w) => !!w && w.status === "watching";
+const isLive = (w) => !!w && (w.status === "watching" || w.status === "paused"); // the session exists (running or paused)
 const END_TEXT = {
   "tab-closed": "Stopped because the LinkedIn tab was closed.",
   "browser-restarted": "Stopped because the browser restarted.",
   "extension-reloaded": "Stopped because the extension was reloaded or updated.",
 };
+// Auto-click finished by itself (w.pilot.finishReason).
+const PILOT_END_TEXT = {
+  "no-more-pages": "Finished: every job was opened and there are no more results pages.",
+  "max-pages": "Finished: reached the results-page limit you set.",
+  "no-list": "Stopped: no job list on this page. Start auto-click from a LinkedIn job search results page.",
+};
+const pilotLine = (w) => (w.pilot ? ` Auto-click: ${plural(w.pilot.clicked, "job")} opened, page ${w.pilot.pages} of at most ${w.pilot.maxPages}.` : "");
 
 function watchText(w) {
   const c = w.counters;
   const tally = `${plural(c.saved, "new job")} saved, ${c.duplicates} already saved (updated), ${c.skipped} skipped, ${c.partial || 0} partial, ${c.failed} failed`;
   if (isWatching(w)) {
     if (w.current === "reading") return { text: "Reading the page you opened...", kind: "" };
-    if (w.current === "saving") return { text: w.saveCards ? `Saving... ${c.processed} of ${c.discovered} processed.` : `Saving... ${c.processed} processed.`, kind: "" };
+    if (w.current === "saving") return { text: `Saving... ${c.processed} processed.`, kind: "" };
     const lead = c.processed ? `Auto-save is on: ${tally}.` : "Auto-save is on.";
-    const how = w.saveCards ? "Keep browsing: open jobs or click Next yourself and they are saved automatically." : "Click the next job in the LinkedIn list; it is saved with full details once it appears.";
+    if (w.autoClick) return { text: `${lead}${pilotLine(w)} The extension is opening the jobs one by one; keep the LinkedIn tab open and visible. Press Pause or Stop at any time.`, kind: "ok" };
+    const how = "Click the next job in the LinkedIn list; it is saved with full details once it appears. Or tick \"Click through the jobs for me\" to let the extension open them.";
     return { text: `${lead} ${how} Press Stop to end.`, kind: "ok" };
   }
-  const why = END_TEXT[w.endReason] || "Stopped by you.";
+  if (w.status === "paused") return { text: `Auto-save is paused: jobs you open are NOT saved. ${tally}. Press Resume to continue, or Stop to end.`, kind: "warn" };
+  const why = w.endReason === "auto-finished" ? PILOT_END_TEXT[w.pilot && w.pilot.finishReason] || PILOT_END_TEXT["no-more-pages"] : END_TEXT[w.endReason] || "Stopped by you.";
   return { text: `${why} ${tally} from ${plural(c.pages, "page")}. Jobs saved so far are kept.`, kind: "warn" };
 }
 
 function renderRun() {
   const w = state.watch;
   const on = isWatching(w);
+  const live = isLive(w);
   const otherTab = on && state.tabId !== null && w.tabId !== state.tabId;
 
   $("btn-start").textContent = "Start";
-  $("btn-start").disabled = state.busy || state.starting || on || !state.onLinkedIn;
-  $("btn-stop").disabled = state.starting || !on;
+  $("btn-start").disabled = state.busy || state.starting || live || !state.onLinkedIn;
+  $("btn-stop").disabled = state.starting || !live;
+  $("btn-watch-pause").disabled = state.starting || !on;
+  $("btn-watch-resume").disabled = state.starting || !(live && !on);
+  // Retry is offered only when there is something to retry: a problem was reported, or the open job could not be saved / read.
+  const oj = w && w.openJob;
+  $("btn-watch-retry").hidden = !(on && (w.lastError || (oj && (oj.state === "failed" || oj.state === "unreadable"))));
   $("btn-save-job").disabled = state.busy || state.starting || !state.onLinkedIn;
 
   const c = w ? w.counters : { pages: 0, discovered: 0, processed: 0, saved: 0, duplicates: 0, full: 0, skipped: 0, partial: 0, failed: 0 };
@@ -235,9 +260,9 @@ function renderRun() {
   $("k-skipped").textContent = String(c.skipped);
   $("k-partial").textContent = String(c.partial || 0);
   $("k-failed").textContent = String(c.failed);
-  // Progress: with cards, saved vs discovered; without, jobs on this page saved with full details.
+  // Progress: jobs on this page saved with full details.
   const pg = (w && w.page) || { visible: 0, full: 0 };
-  const pct = !w ? 0 : w.saveCards ? (c.discovered ? Math.min(100, Math.round((100 * c.processed) / c.discovered)) : 0) : pg.visible ? Math.round((100 * pg.full) / pg.visible) : 0;
+  const pct = w && pg.visible ? Math.round((100 * pg.full) / pg.visible) : 0;
   $("collect-fill").style.width = `${pct}%`;
   $("collect-bar").setAttribute("aria-valuenow", String(pct));
 
@@ -249,22 +274,29 @@ function renderRun() {
   $("collect-status").className = `run-status${line.kind ? ` ${line.kind}` : ""}`;
 
   // Never claim automatic iteration that does not exist: say exactly what is automatic and what is not.
-  $("collect-auto").textContent = state.automaticSources.length
+  $("collect-auto").textContent = w && w.autoClick && live
+    ? "Auto-click is on: the extension opens each job in this LinkedIn tab and moves to the next results page by itself."
+    : state.automaticSources.length
     ? `Automatic collection is available from: ${state.automaticSources.map((s) => s.label).join(", ")}.`
     : "Automatic job-to-job or page-to-page collection is not available: no authorised job-data source is configured, and LinkedIn is never clicked or paged automatically. Open each job yourself; it is saved with its full details.";
   const job = on && !otherTab ? openJobLine(w) : null;
   $("collect-job").hidden = !job;
   $("job-state").textContent = job ? job.state : "";
   $("job-name").textContent = job ? job.name : "";
+  renderJobList(on && !otherTab ? w : null);
   const guide = on && !otherTab ? guideText(w) : "";
   $("collect-guide").hidden = !guide;
   $("collect-guide").textContent = guide;
-  $("opt-save-cards").disabled = on || state.starting;
+  // Auto-click can be switched on/off while the session runs (it is sent to the worker at once).
+  if (live && !state.autoClickPending) $("opt-auto-click").checked = w.autoClick === true;
+  $("opt-auto-click").disabled = state.starting;
+  $("opt-max-pages").disabled = state.starting || !$("opt-auto-click").checked;
+  if (live && w.pilot && document.activeElement !== $("opt-max-pages")) $("opt-max-pages").value = String(w.pilot.maxPages);
 
   $("collect-detail").hidden = !on;
   $("collect-detail").textContent = !on ? "" : otherTab
     ? "Auto-save is on for another LinkedIn tab. Switch to it to keep collecting, or press Stop."
-    : w.saveCards ? "List cards carry no description: open a job to save its full details." : "Only the jobs you open are saved, always with their full details.";
+    : "Only the jobs you open are saved, always with their full details.";
   const err = on && w.lastError ? w.lastError.message : "";
   $("collect-error").hidden = !err;
   $("collect-error").textContent = err ? `Last problem: ${err}` : "";
@@ -291,8 +323,43 @@ function openJobLine(w) {
   const j = w.openJob;
   if (!j) return { state: w.current === "reading" ? "Extracting" : "Waiting for job", name: "Click a job in the LinkedIn list." };
   const state = w.current === "reading" && j.state === "found" ? "Extracting" : JOB_STATE_TEXT[j.state] || j.state;
-  const name = j.jobId ? `${j.title || j.jobId}${j.company ? ` - ${j.company}` : ""}` : j.state === "unreadable" ? `could not read the open job (${j.reason})` : "";
+  // The selected job is named from its list card while its details are still loading or could not be read.
+  const label = `${j.title || j.jobId || ""}${j.company ? ` - ${j.company}` : ""}`.trim();
+  const name = j.state === "unreadable" ? `${label ? `${label}: ` : ""}could not read the details (${REASON_TEXT[j.reason] || j.reason})` : label;
   return { state: `${state}:`, name };
+}
+
+// One line per job listed on the page, with where it is in the pipeline. Text only (never HTML). The list is rebuilt only when
+// its content changes, so the <details> stays open/closed as the user left it.
+function jobStatusText(j) {
+  if (j.save === "saving" || j.save === "retry") return j.save === "retry" ? "waiting to retry saving" : "saving...";
+  if (j.outcome === "full") return j.dup ? "full details saved (updated an existing job)" : "full details saved";
+  if (j.outcome === "partial") return `saved, but incomplete${j.error ? ` (${j.error})` : ""}`;
+  if (j.outcome === "card") return "saved from the list card only: open it for the details";
+  if (j.outcome === "skipped") return `skipped: ${j.error || "nothing usable"}`;
+  if (j.outcome === "failed" || j.save === "failed") return `failed: ${j.error || "not saved"}`;
+  if (j.det === "loading") return "details still loading";
+  if (j.det === "unreadable") return `could not read the details: ${j.error || "unknown reason"}`;
+  if (j.det === "full" || j.det === "partial") return "details read, not saved yet";
+  return j.mark === "full" ? "already saved with full details" : "listed";
+}
+let jobListSig = "";
+function renderJobList(w) {
+  const jobs = (w && w.page && w.page.jobs) || [];
+  $("job-list").hidden = !jobs.length;
+  if (!jobs.length) { jobListSig = ""; return; }
+  const sig = JSON.stringify(jobs);
+  if (sig === jobListSig) return;
+  jobListSig = sig;
+  $("job-count").textContent = String(jobs.length);
+  const ul = $("job-items");
+  ul.textContent = "";
+  for (const j of jobs) {
+    const li = document.createElement("li");
+    li.dataset.mark = j.isNext ? "next" : j.mark || "";
+    li.textContent = `${j.isNext ? "▶ " : ""}${j.title || j.jobId}${j.company ? ` - ${j.company}` : ""}: ${j.isNext && !j.outcome ? "next to save" : jobStatusText(j)}`;
+    ul.append(li);
+  }
 }
 
 // Guided checklist: this page's progress and the next job to open, from the confirmed save state (this session and the
@@ -301,8 +368,9 @@ function guideText(w) {
   const pg = w.page;
   if (!pg || !pg.visible) return "";
   const parts = [`This page: ${pg.full} of ${plural(pg.visible, "job")} saved with full details.`];
-  if (pg.next) parts.push(`Next to save: ${pg.next.title || pg.next.jobId}${pg.next.company ? ` - ${pg.next.company}` : ""} (marked "Next to save" in the list; click it yourself).`);
-  else parts.push("All jobs on this page are saved. Go to the next results page yourself to continue.");
+  const who = w.autoClick ? "the extension opens it next" : "click it yourself";
+  if (pg.next) parts.push(`Next to save: ${pg.next.title || pg.next.jobId}${pg.next.company ? ` - ${pg.next.company}` : ""} (marked ▶ under "Jobs on this page" below; ${who}).`);
+  else parts.push(w.autoClick ? "All jobs on this page are saved. Moving on to the next results page..." : "All jobs on this page are saved. Go to the next results page yourself to continue.");
   return parts.join(" ");
 }
 
@@ -328,16 +396,17 @@ async function refreshWatch() {
 }
 
 async function runStart() {
-  if (state.busy || state.starting || isWatching(state.watch)) return;
+  if (state.busy || state.starting || isLive(state.watch)) return;
   if (!state.onLinkedIn || state.tabId === null) return note("Open a LinkedIn jobs page (search results or a job), then press Start.", "warn");
   if (!navigator.onLine) return note("You're offline. Nothing was saved; try again when you're connected.", "error");
   status("");
   state.note = null;
   state.starting = true;
   renderRun();
-  const saveCards = $("opt-save-cards").checked;
-  savePref({ saveCards });
-  const res = await worker(MSG.WATCH_START, { tabId: state.tabId, pageUrl: state.pageUrl, saveCards });
+  const autoClick = $("opt-auto-click").checked;
+  const maxPages = maxPagesValue();
+  savePref({ autoClick, maxPages });
+  const res = await worker(MSG.WATCH_START, { tabId: state.tabId, pageUrl: state.pageUrl, autoClick, maxPages });
   state.starting = false;
   if (!res.ok) return note(res.error.message, "error");
   setWatch(res.watch);
@@ -346,7 +415,7 @@ async function runStart() {
 
 async function runStop() {
   const w = state.watch;
-  if (!isWatching(w)) return;
+  if (!isLive(w)) return;
   $("btn-stop").disabled = true; // acknowledged immediately; the worker starts no further batch
   const res = await worker(MSG.WATCH_STOP, { sessionId: w.sessionId });
   if (!res.ok) note(res.error.message, res.error.code === "stale-session" ? "warn" : "error");
@@ -354,20 +423,65 @@ async function runStop() {
   renderRun();
 }
 
-// The "Also save list cards" choice is remembered (a per-browser convenience; default off).
+// The auto-click choice and page limit are remembered (a per-browser convenience). A "saveCards" value saved by older
+// versions is ignored: list cards are never saved on their own.
 const PREFS_KEY = "ljs:prefs";
 async function loadPrefs() {
   try {
     const r = await chrome.storage.local.get(PREFS_KEY);
-    $("opt-save-cards").checked = !!(r && r[PREFS_KEY] && r[PREFS_KEY].saveCards === true);
+    const p = (r && r[PREFS_KEY]) || {};
+    // On unless the user turned it off in this version (v2); older saved prefs predate the default and are ignored.
+    $("opt-auto-click").checked = p.v >= 2 ? p.autoClick !== false : true;
+    if (Number.isInteger(p.maxPages)) $("opt-max-pages").value = String(p.maxPages);
   } catch { /* default: off */ }
+  renderRun();
+}
+// Results pages auto-click walks through (1-100; 5 when the box is empty or invalid).
+function maxPagesValue() {
+  const n = Math.round(Number($("opt-max-pages").value));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 100) : 5;
 }
 function savePref(p) {
-  try { chrome.storage.local.set({ [PREFS_KEY]: p }).catch(() => {}); } catch { /* not remembered */ }
+  try { chrome.storage.local.set({ [PREFS_KEY]: { ...p, v: 2 } }).catch(() => {}); } catch { /* not remembered */ }
 }
 
 $("btn-start").addEventListener("click", runStart);
+// While a session runs, the auto-click choice and page limit apply to it right away.
+async function applyAutoClick() {
+  const w = state.watch;
+  const autoClick = $("opt-auto-click").checked;
+  const maxPages = maxPagesValue();
+  savePref({ autoClick, maxPages });
+  if (!isLive(w)) return renderRun();
+  state.autoClickPending = true;
+  renderRun();
+  const res = await worker(MSG.WATCH_SET_AUTOCLICK, { sessionId: w.sessionId, autoClick, maxPages });
+  state.autoClickPending = false;
+  // Said right under the checkbox (it flips back to the session's real setting, so the reason must be visible there).
+  const err = res.ok ? "" : state.stale
+    ? "Could not switch: the extension must be reloaded first (see the message at the top)."
+    : `Could not switch auto-click: ${res.error.message} Press Stop, then Start again with the box ticked.`;
+  $("auto-click-error").hidden = !err;
+  $("auto-click-error").textContent = err;
+  if (res.ok) setWatch(res.watch);
+  renderRun();
+}
+$("opt-auto-click").addEventListener("change", applyAutoClick);
+$("opt-max-pages").addEventListener("change", () => { if (isLive(state.watch) && $("opt-auto-click").checked) applyAutoClick(); });
 $("btn-stop").addEventListener("click", runStop);
+
+// Pause / Resume / Retry of the capture session. Errors show in the shared status line (the session text keeps its own meaning).
+async function watchCommand(type) {
+  const w = state.watch;
+  if (!isLive(w)) return;
+  const res = await worker(type, { sessionId: w.sessionId });
+  if (!res.ok) status(res.error.message, res.error.code === "stale-session" ? "warn" : "error");
+  else { status(""); setWatch(res.watch); }
+  renderRun();
+}
+$("btn-watch-pause").addEventListener("click", () => watchCommand(MSG.WATCH_PAUSE));
+$("btn-watch-resume").addEventListener("click", () => watchCommand(MSG.WATCH_RESUME));
+$("btn-watch-retry").addEventListener("click", () => watchCommand(MSG.WATCH_RETRY));
 
 // Live progress: the worker writes the session to chrome.storage.local after every step.
 if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
@@ -515,12 +629,19 @@ async function previewExtraction() {
 }
 $("btn-extract").addEventListener("click", previewExtraction);
 
+// ---------------------------------------------------------------- batch import (CSV / JSON)
+importPanel = initImportPanel({ $, worker, plural, canRun: () => !!(state.configured && state.user) });
+
 // ---------------------------------------------------------------- init
 (async () => {
   await showPageStatus();
   await refreshAccount();
   await loadPrefs();
   await refreshWatch(); // reopening the popup shows the persisted session (watching, stopped, ...)
+  await importPanel.refresh(); // reopening the popup shows a running or finished import
   const ping = await worker(MSG.PING);
   console.log("[LJS] service worker:", ping);
+  // An older worker (extension not reloaded after an update) does not know the newer messages: say so plainly.
+  state.stale = !!ping && ping.ok === true && ping.protocol !== PROTOCOL;
+  $("stale-banner").hidden = !state.stale;
 })();

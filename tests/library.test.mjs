@@ -476,3 +476,19 @@ test("each LinkedIn row has an Open on LinkedIn link; unsafe URLs get none", asy
   await p.click(p.button(p.rows()[0], "delete"));
   assert.ok(p.rows()[0].querySelector("a[data-action-link='open']"));
 });
+
+test("imported jobs: Source says 'Imported file', the title links to their own https page, no 'Open on LinkedIn', and 'Partial' (never 'Card only') for a missing description", async () => {
+  const imported = mkJob(1, { provider: "file", url: "https://careers.example.com/jobs/1", title: "Imported job", source: "detail", hasFullDetail: false, description: null, extractionStatus: "partial", extractionWarnings: ["missing:description"] });
+  const p = await openLibrary({ jobs: [imported, mkJob(2)] });
+  const [a, b] = p.rows();
+  assert.equal(p.cells(a)[9], "Imported file");
+  assert.equal(a.querySelector("td.title a").getAttribute("href"), "https://careers.example.com/jobs/1");
+  assert.equal(a.querySelector("a[data-action-link='open']"), null, "the LinkedIn shortcut is only for LinkedIn jobs");
+  assert.equal(a.querySelector("[data-extraction]").textContent, "Partial");
+  assert.ok(b.querySelector("a[data-action-link='open']"), "a LinkedIn row still has it");
+  await p.click(p.button(a, "details"));
+  const text = p.w.document.querySelector("tr.details").textContent;
+  assert.match(text, /Imported file/);
+  assert.match(text, /description not found/);
+  assert.doesNotMatch(text, /card only/i);
+});

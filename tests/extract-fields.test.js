@@ -333,3 +333,61 @@ test("identity checks report the selected job, the panel's job and the descripti
   assert.deepEqual([r.checks.pageUrlId, r.checks.aboutId, r.checks.titleLinkId, r.checks.idMatchesPageUrl], ["4303643872", "4303643872", "4303643872", true]);
   assert.ok(r.checks.descriptionChars > 3000);
 });
+
+// ------------------------------------------------------------------ live markup pasted 2026-10-23 ("lrm" layout, job 4460331411)
+const LRM_URL = "https://www.linkedin.com/jobs/search-results/?currentJobId=4460331411";
+test("2026-10-23 card: id from componentkey; visible title (not the screen-reader duplicate), company, location", () => {
+  const doc = load("job-card-2026-10-23.html", "https://www.linkedin.com/jobs/search-results/?currentJobId=4448191242");
+  const cards = extractor.extractCards(doc, NOW);
+  assert.equal(cards.length, 1, "the outer role=button element only; the inner wrapper with the same componentkey is not a second card");
+  assert.deepEqual([cards[0].jobId, cards[0].title, cards[0].company, cards[0].location, cards[0].url], ["4448191242", "Software Engineer 3", "MongoDB", "Gurugram", "https://www.linkedin.com/jobs/view/4448191242/"]);
+  assert.deepEqual([cards[0].extractionStatus, cards[0].extractionWarnings], ["partial", ["card-only"]]);
+});
+
+test("2026-10-23 panel: header fields come from the PRIMARY selectors despite the extra title-row wrapper", () => {
+  const r = detail(load("job-search-2026-10-23.html", LRM_URL), LRM_URL);
+  const j = r.job;
+  assert.equal(r.reason, "ok");
+  assert.deepEqual(
+    [j.jobId, j.url, j.title, j.company, j.location, j.country, j.postedText, j.applicantsText, j.employmentType, j.hiringInsight],
+    ["4460331411", "https://www.linkedin.com/jobs/view/4460331411/", "Software Dev Engineer II, UTR Tech", "Amazon", "Gurugram, Haryana, India", "India", "Reposted 1 week ago", "Over 100 people clicked apply", "Full-time", "Responses managed off LinkedIn"],
+  );
+  assert.deepEqual([r.sources.location, r.sources.postedText, r.sources.applicantsText, r.sources.hiringInsight], ["title-link-sibling", "title-link-sibling", "title-link-sibling", "title-link-sibling"], "the primary selector, not the header-anchored fallback");
+  assert.equal(j.postedDateApprox, "2026-10-14", "'Reposted 1 week ago' still gives a date (7 days before the test clock, 2026-10-21)");
+  assert.deepEqual([j.applicationStatus, j.applicationMethod], ["open", "external"]);
+  assert.equal(j.applicationUrl, "https://www.amazon.jobs/jobs/10517820/software-dev-engineer-ii-utr-tech?cmpid=SPLICX0248M&utm_source=linkedin.com&utm_campaign=cxro&utm_medium=social_media&utm_content=job_posting&ss=paid");
+  assert.equal(j.workplaceType, "", "this job shows no workplace pill and says nothing in its text: left empty, not guessed");
+  assert.deepEqual([j.extractionStatus, j.extractionWarnings], ["complete", ["missing:workplaceType"]]);
+});
+
+test("2026-10-23 panel: description and sections of a plain-text posting (headings in <strong>, a paragraph under 'Key job responsibilities')", () => {
+  const j = detail(load("job-search-2026-10-23.html", LRM_URL), LRM_URL).job;
+  assert.ok(j.description.startsWith("Description\n"));
+  assert.ok(j.description.endsWith("Job ID: A10517820"), "nothing cut at the '… more' point");
+  assert.doesNotMatch(j.description, /… more|Try Premium|Example Person|Determine your fit|Unlock hiring insights/);
+  assert.equal(j.responsibilities.length, 1);
+  assert.ok(j.responsibilities[0].length > 600 && j.responsibilities[0].startsWith("As an Engineer in the team"), "the whole paragraph is one item");
+  assert.deepEqual(j.qualifications, ["3+ years of non-internship professional software development experience", "2+ years of non-internship design or architecture (design patterns, reliability and scaling) of new and existing systems experience", "Experience programming with at least one software programming language"]);
+  assert.equal(j.preferredQualifications.length, 2);
+  assert.deepEqual(j.education, ["Bachelor's degree in computer science or equivalent"]);
+  assert.equal(j.experience, "3+ years of non-internship professional software development experience");
+  assert.deepEqual([j.salary, j.skills, j.certifications], ["", [], []], "the equal-opportunity paragraph and 'Company - ADCI - Haryana' are not requirements");
+  assert.ok(!j.qualifications.concat(j.preferredQualifications, j.responsibilities).some((x) => /inclusive culture|ADCI|Job ID/.test(x)));
+});
+
+test("2026-10-23 panel: same result without the lazy-column wrapper; the selected job's id must match; a stale panel is refused", () => {
+  const doc = load("job-search-2026-10-23.html", LRM_URL);
+  doc.querySelector("[data-testid='lazy-column']").setAttribute("data-testid", "renamed");
+  const r = detail(doc, LRM_URL);
+  assert.equal(r.reason, "ok");
+  assert.deepEqual([r.job.jobId, r.checks.rootSource, r.checks.pageUrlId, r.checks.aboutId, r.checks.idMatchesPageUrl], ["4460331411", "about-ancestor-fallback", "4460331411", "4460331411", true]);
+  const other = "https://www.linkedin.com/jobs/search-results/?currentJobId=4448191242"; // the card the user just clicked
+  const stale = detail(load("job-search-2026-10-23.html", other), other);
+  assert.deepEqual([stale.job, stale.reason, stale.checks.pageUrlId, stale.checks.aboutId], [null, "page-id-mismatch", "4448191242", "4460331411"]);
+});
+
+test("layout robustness: the title-row wrapper is optional (both the 2026-10-22 and 2026-10-23 variants resolve the meta line the same way)", () => {
+  const a = detail(load("job-search-2026-10-22.html", "https://www.linkedin.com/jobs/search-results/?currentJobId=4303643872"), "https://www.linkedin.com/jobs/search-results/?currentJobId=4303643872");
+  const b = detail(load("job-search-2026-10-23.html", LRM_URL), LRM_URL);
+  for (const r of [a, b]) assert.deepEqual([r.sources.location, r.sources.postedText, r.sources.applicantsText], ["title-link-sibling", "title-link-sibling", "title-link-sibling"]);
+});

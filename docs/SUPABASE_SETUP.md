@@ -23,19 +23,22 @@ the extension refuses `sb_secret_` / `service_role` keys.
 | `20261021000200_upsert_saved_jobs.sql` | applied | merge-safe `upsert_saved_jobs` function |
 | `20261022000100_add_application_status.sql` | applied | adds `application_status` (open/closed/NULL), `application_status_text`, `application_status_at`; replaces `upsert_saved_jobs` so a known status is never erased by an unknown one |
 | `20261022000200_job_detail_fields.sql` | **prepared - NOT applied (needs your approval)** | adds `country`, `seniority_level`, `salary_currency`, `salary_period`, `application_method`, `hiring_insight`, `preferred_qualifications`, `education_requirements`, `certifications`, `extraction_status`, `extraction_warnings`, `application_url`, `benefits`, `industry`, `company_size`; replaces `upsert_saved_jobs` with the same merge rules extended to them. Additive only. See `docs/FIELDS.md`. |
-| `20261023000100_multi_provider_identity.sql` | **not applied - not needed** | optional, only for non-LinkedIn sources (the dormant batch engine). Its RPC was updated (file never applied) to keep the detail fields above; it requires `20261022000200` first. Do not apply it unless you decide to add another job source. |
+| `20261023000100_multi_provider_identity.sql` | **prepared - NOT applied (needs your approval)** | adds `provider` + `external_id` so jobs from other sources (a CSV / JSON import, a future API) can be stored next to LinkedIn jobs, de-duplicated per source. Existing rows become `provider = linkedin` and keep their data. It requires `20261022000200` first. **Needed for Batch import**; LinkedIn auto-save does not need it. |
 
-Extension 0.9.2 works on the three applied migrations: the extra detail fields are extracted and shown in Preview, but
+Extension 0.12.0 works on the three applied migrations: the extra detail fields are extracted and shown in Preview, but
 only stored after `20261022000200` is applied (reads fall back automatically; nothing fails). Applied migration files are
 never edited; changes ship as new files.
 
-**Applying `20261022000200` (only after you approve it).** Do NOT use `npx supabase db push`: it would also apply the
-optional fourth file. Apply just this file, then record it:
+**Applying the pending migrations (only after you approve it).** Two files are pending and both are wanted for Batch import:
+`20261022000200` (extra detail fields) and `20261023000100` (jobs from other sources); the second requires the first, and they sort
+in that order. If you only want the detail fields, apply just the first (below) and leave the second.
 ```
-npx supabase db query --linked -f supabase/migrations/20261022000200_job_detail_fields.sql
-npx supabase migration repair --status applied 20261022000200
-npx supabase migration list        # 000100, 000200, 20261022000100, 20261022000200 show a Remote entry
+npx supabase db push --dry-run     # must list exactly the pending file(s): 20261022000200 and, if wanted, 20261023000100
+npx supabase db push               # enter the database password in your terminal when asked; each file runs in a transaction
+npx supabase migration list        # every applied file shows a Remote entry
 ```
+(Applying only the first file: `npx supabase db query --linked -f supabase/migrations/20261022000200_job_detail_fields.sql`, then
+`npx supabase migration repair --status applied 20261022000200`. `db push` would also apply the second.)
 Then verify (read-only):
 ```
 npx supabase db query --linked "select count(*) from public.saved_jobs"     # same number as before (143 on 2026-10-22)
@@ -105,16 +108,19 @@ Rebuild after changing anything under `src/db`, `src/background` or `src/shared`
   6. Export filtered with Applications = Closed: only closed jobs are in the file.
   7. Delete one job from the table (Confirm delete): it disappears and the popup count drops by one.
 
-## 7. Auto-save and download (version 0.9.2)
+## 7. Auto-save and download (version 0.12.0)
 Everything happens in the extension popup:
 
 | Control | What it does |
 |---|---|
-| **Start** | Turns on **auto-save for the LinkedIn tab you are on**. Then click each job in the LinkedIn list yourself: LinkedIn shows the full details of one job at a time (right-hand panel), and each job you open is saved **with its full details** about two seconds after they appear (still-loading panels are read again a few times). By default list cards are **not** saved, so no new "Card only" rows are created. |
-| **Also save list cards** | Optional (remembered): also save every visible card (title, company, location only, marked "Card only"). Opening such a job later upgrades the same row to full details. |
-| **Badges on LinkedIn cards** | While auto-save runs each listed job shows *Next to save*, *Full details saved*, *Partial* or *Failed* (visual only, never clickable; removed on Stop). A job is marked saved only after Supabase confirmed it; jobs saved with full details in earlier sessions are recognised (read-only lookup by job ID). |
+| **Start** | Turns on **auto-save for the LinkedIn tab you are on**. Then click each job in the LinkedIn list yourself: LinkedIn shows the full details of one job at a time (right-hand panel), and each job you open is saved **with its full details** about two seconds after they appear (still-loading panels are read again a few times). List cards are **never** saved on their own (since 0.13.1 there is no option for it), so no new "Card only" rows are created; existing ones are upgraded to full details when their job is opened. |
+| **Job status (popup only)** | Nothing is added to LinkedIn's page (since 0.13.1; earlier versions drew status badges on the job cards). Each listed job's status (*next to save*, *full details saved*, *partial*, *failed*) is shown in the popup under *Jobs on this page*. A job is marked saved only after Supabase confirmed it; jobs saved with full details in earlier sessions are recognised (read-only lookup by job ID). |
 | **Current job** | The popup shows the open job's title and company and its state: Waiting for job, Extracting, Saving, Full details saved, Partial or Failed. The content script detects when the opened job's details have rendered (checked every 150 ms, at most 8 s) instead of waiting a fixed time. |
+| **Per-job tracking** | Every job the extension discovers has its own record for the session: title and company, whether its details were read (loading / unreadable / full / partial), whether the database confirmed its save (saving / saved / failed), the outcome (full / partial / card only / skipped / failed), whether it updated an existing row, and its last error. The popup lists them under *Jobs on this page* (the next job to open is marked). A job the database refuses is tried again only if you open it again, at most 3 times and not within 5 seconds; if connection retries run out the job shows *failed*, never a stuck "saving". Records are kept for the newest 500 jobs. |
 | **Checklist** | While auto-save runs the popup shows the open job's state (saving / saved with full details / still loading / could not be read), "This page: X of N jobs saved with full details" and **Next to open: <title> - <company>**. You click that job in LinkedIn; the extension never clicks it for you. |
+| **Pause / Resume** | Pause keeps the session and its counts but the extension stops reading the page (no page observer runs); jobs you open while paused are **not** saved. Resume reads the job on screen at that moment and carries on. Stop also works while paused. |
+| **Retry** | Shown only after a problem was reported (or the open job could not be saved or read). It re-reads the open job now and tries it again, ignoring the 5-second wait and 3-attempt limit once. |
+| **Panel changes** | LinkedIn can swap the right-hand panel to another job without changing the URL. The content script watches the panel's own identity (the About-the-job section id carries the job id, plus whether the description has rendered) and reports "ready" only when the panel is the same across two checks 150 ms apart; a half-swapped panel is never read, and the extractor still refuses details whose ids disagree with each other or with the URL. The page observer exists only while auto-save is on. |
 | **Stop** | Ends auto-save. A save already in flight finishes (its jobs are kept), no further batch starts, and nothing more is read. Saved jobs are never deleted. |
 | **Save open job only** | Saves just the open job with its full details. |
 | **Download CSV** | Downloads **every job you have saved** as one CSV file with all saved fields. It only reads; nothing is changed. |
@@ -159,6 +165,26 @@ as saved after Supabase confirms its batch.
 12. **Download CSV** -> `linkedin-saved-jobs-YYYY-MM-DD.csv`; opened jobs have a Description.
 13. On a non-LinkedIn tab: Start is disabled with a hint; Download CSV still works.
 
+### Batch import (CSV / JSON), version 0.12.0
+Popup -> **Batch import (CSV / JSON)**: choose or paste a file of jobs and press **Start import**. The run controller processes the
+records automatically, a few at a time: each is validated, de-duplicated by `(source, id)`, saved with Supabase's confirmation,
+and counted (Total, Processed, Saved, Duplicates, Partial, Skipped, Failed). Pause / Resume (Retry after a problem) / Stop, the
+current job, the last error and the failed records are shown; progress survives closing the popup and a browser restart.
+Every record gets an outcome (new / updated / partial / skipped / failed); **Retry failed** re-runs only the failed ones and **Download results** saves the
+outcomes as a CSV. Format and rules: [IMPORT_FORMAT.md](IMPORT_FORMAT.md). It reads nothing from LinkedIn.
+
+**Requires the database update:** until `20261022000200` and then `20261023000100` are applied (with your approval), Start import
+refuses with "Importing jobs needs a database update first". Apply both together with `supabase db push --dry-run` (it must list
+exactly these two files) and then `supabase db push`, entering credentials only in your terminal; take a CSV backup first
+(Download CSV). Verify afterwards (read-only):
+```
+npx supabase db query --linked "select column_name from information_schema.columns where table_schema='public' and table_name='saved_jobs' and column_name in ('provider','external_id','country','extraction_status') order by 1"   # 4 rows
+npx supabase db query --linked "select provider, count(*) from public.saved_jobs group by 1"   # linkedin = your previous total
+```
+An authorised job-data API (server-side proxy with the key as a secret, per-user authorisation and rate limits) is a separate step;
+it is not configured, and no provider is assumed. The contract and a tested template (`createApiSource`) for adding one are in
+[SOURCE_ADAPTER.md](SOURCE_ADAPTER.md); the source selector in the panel is where it would appear.
+
 ### Automatic pagination / other sources
 LinkedIn search results are never paged or opened automatically (LinkedIn's terms and this project's rules). The
 extension already contains a source-adapter interface for an **authorised** job-data source: `src/sources/registry.js`
@@ -167,8 +193,8 @@ run controller in `src/batch/` (bounded pages, rate limits, retries, repeated-cu
 progress, Stop, incremental saves). No such source is enabled. To add one we need: a source you are permitted to use,
 its documented API (endpoints, pagination, rate limits, terms), and any credential handling it requires.
 
-## 8. Full job details: one job from extraction to CSV (version 0.9.2, NOT yet run by the author)
-1. `npm run build`; `chrome://extensions` -> **Reload** (version **0.9.2**); reload the LinkedIn tab.
+## 8. Full job details: one job from extraction to CSV (version 0.12.0, NOT yet run by the author)
+1. `npm run build`; `chrome://extensions` -> **Reload** (version **0.12.0**); reload the LinkedIn tab.
 2. Open one job, e.g. `https://www.linkedin.com/jobs/view/<id>/`, and wait until "About the job" is shown.
 3. Popup -> Selector check -> **Preview extraction**. Check the `summary` line: "Open job: complete - N fields found",
    the missing / not-stated lists, "Mapping: … nothing dropped", and (before the migration) the list of fields

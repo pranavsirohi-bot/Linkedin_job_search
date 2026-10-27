@@ -27,7 +27,9 @@ export const HARD_LIMITS = Object.freeze({
   paceMs: 400, // pause between units of work (politeness; the source's rate limit is not documented)
   inlineWaitMs: 10000, // longer waits are handed to chrome.alarms so the service worker can sleep
   maxEmptyPages: 12,
-  maxStoredFailures: 50,
+  maxStoredFailures: 50, // recent failures kept with their reason for display
+  maxFailedRecords: 500, // every failed record (id + title + reason) is remembered so it can be retried
+  maxResults: 500, // per-record outcome log of one run
   maxWarnings: 20,
   maxSeenCursors: 200,
 });
@@ -89,6 +91,11 @@ export function newRunState({ runId, now, sourceId, params, limits }) {
     moreAvailable: false, // true when a limit stopped the run while the source still had results
     cursorRestarted: false, // paging was restarted once after the source reported an expired cursor
     positionLabel: "start", // human-readable position of the next page
+    sourceTotal: null, // how many results the source says exist (capped at the job limit), when it says so
+    partialSaved: 0, // saved records that were incomplete (e.g. an imported row without a description)
+    failedRefs: [], // [{ externalId, title, reason }]: every record that failed (not the ones skipped), for "retry failed"
+    results: [], // [{ id, t, o, r }]: what happened to each record. o: new | updated | saved | partial | skipped | failed
+    retryOf: null, // runId of the run whose failed records this run is retrying
     page: 0, // pages fetched
     emptyPages: 0,
     pending: [], // references discovered but not yet processed
@@ -127,6 +134,13 @@ export function summarize(state) {
     capReached: state.capReached,
     moreAvailable: !!state.moreAvailable,
     position: state.positionLabel || (state.cursor == null ? "start" : ""),
+    // The job the run will process next (title only: never the queue itself) and the progress denominator.
+    current: state.pending && state.pending.length ? { externalId: String(state.pending[0].externalId), title: String(state.pending[0].title || "").slice(0, 200) } : null,
+    total: Number.isInteger(state.sourceTotal) ? Math.max(state.sourceTotal, state.counters.discovered) : state.counters.discovered,
+    partial: state.partialSaved || 0,
+    failedCount: Array.isArray(state.failedRefs) ? state.failedRefs.length : 0,
+    results: Array.isArray(state.results) ? state.results.map((r) => ({ id: r.id, title: r.t, outcome: r.o, reason: r.r })) : [],
+    retryOf: state.retryOf || null,
     importStats: state.params && state.params.stats ? { ...state.params.stats } : null,
     lastError: state.lastError ? { ...state.lastError } : null,
     retry: state.retry ? { attempt: state.retry.attempt, until: state.retry.until, reason: state.retry.reason } : null,

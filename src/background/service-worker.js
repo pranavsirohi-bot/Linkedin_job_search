@@ -2,13 +2,14 @@ import { createRunController } from "../batch/run-controller.js";
 import { createChromeRunStore } from "../batch/run-store.js";
 import { createExtensionClient } from "../db/supabase-client.js";
 import { ensureSession } from "../db/auth.js";
-import { DbError, ERR } from "../db/errors.js";
-import { saveJobs, savedDetailStatus } from "../db/saved-jobs.js";
+import { providerColumnsAvailable, saveJobs, savedDetailStatus } from "../db/saved-jobs.js";
+import { createFileSource } from "../sources/file-import.js";
 import { createLinkedInPageSource } from "../sources/linkedin-page.js";
 import { MSG } from "../shared/messages.js";
 import { SUPABASE_CONFIG, checkConfig } from "../shared/supabase-config.js";
 import { createChromeWatchStore, createWatchSession } from "../watch/watch-session.js";
 import { createHandlers, createSessionRunner } from "./handlers.js";
+import { makeBatchPreflight } from "./preflight.js";
 import { makeIsLinkedInContentSender, makeIsTrustedSender } from "./trust.js";
 
 let client = null;
@@ -22,27 +23,32 @@ const isContentSender = makeIsLinkedInContentSender(chrome.runtime.id);
 const withSession = createSessionRunner(getClient);
 const save = (jobs) => withSession((c) => saveJobs(c, jobs)); // same idempotent, merge-safe path as "Save open job only"
 
-// Kept for runs started by version 0.6.1 (a one-page snapshot); the popup now uses auto-save below.
+// Batch sources the run controller can drive:
+//   linkedin-page  kept for runs started by version 0.6.1 (a one-page snapshot); the popup uses auto-save instead
+//   file           records from a CSV / JSON file the user chose (a permitted import). Processed automatically, one batch at a time.
+// Sources that fetch jobs by themselves from the web ("automatic") would be listed here once an AUTHORISED data source is
+// configured (see docs/SUPABASE_SETUP.md, "Automatic pagination / other sources"). None is; LinkedIn is never fetched.
 const linkedInPage = createLinkedInPageSource();
-// Sources that can fetch and page jobs by themselves ("automatic") would be listed here once an AUTHORISED data source is
-// configured (see docs/SUPABASE_SETUP.md, "Automatic pagination / other sources"). None is.
+const fileImport = createFileSource();
+const registered = [linkedInPage, fileImport];
 const sources = {
-  get: (id) => (id === linkedInPage.id ? linkedInPage : null),
-  list: () => [{ id: linkedInPage.id, label: linkedInPage.label, automatic: linkedInPage.automatic === true }],
+  get: (id) => registered.find((s) => s.id === id) || null,
+  list: () => registered.map((s) => ({ id: s.id, label: s.label, automatic: s.automatic === true })),
 };
 const runs = createRunController({
   store: createChromeRunStore(),
   sources,
   save,
-  preflight: async () => {
-    const cfg = checkConfig(SUPABASE_CONFIG);
-    if (!cfg.ok) throw new DbError(ERR.NOT_CONFIGURED, cfg.reason);
-    await ensureSession(getClient());
-  },
+  preflight: makeBatchPreflight({
+    checkConfig: () => checkConfig(SUPABASE_CONFIG),
+    ensureReady: () => ensureSession(getClient()),
+    providerColumnsReady: () => withSession((c) => providerColumnsAvailable(c)),
+    internalSourceId: linkedInPage.id,
+  }),
 });
 
 // Auto-save while the user browses. The worker reads the watched tab through our content script (read-only), only
-// after the user changed the page themselves. Nothing is clicked, scrolled, opened or navigated.
+// after the page changed. Only in auto-click mode (opt-in per session) does the content script open jobs and page on.
 const isLinkedInUrl = (url) => { try { const u = new URL(url); return u.protocol === "https:" && u.hostname === "www.linkedin.com"; } catch { return false; } };
 const watch = createWatchSession({
   store: createChromeWatchStore(),

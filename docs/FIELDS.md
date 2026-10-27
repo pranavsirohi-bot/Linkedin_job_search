@@ -1,4 +1,4 @@
-# Job fields: extraction → database → table → export (version 0.9.2)
+# Job fields: extraction → database → table → export (version 0.12.0)
 
 One row per field. **Source** says where the value comes from; nothing is filled in when the page does not state it.
 "Card" = a job card in the search-results list; "Detail" = the open job (right-hand panel or `/jobs/view/<id>/`).
@@ -62,3 +62,14 @@ missing. **Optional** fields are present only when the job states them; their ab
 | Last-updated date (LinkedIn's) | LinkedIn shows only a relative posted / reposted time, which is stored as Posted. |
 | Recruiter / hiring contact | Deliberately not read ("People you can reach out to" is other people's profile data). |
 | User notes, user application-tracking status | Not part of the current data model; not added in this change. |
+
+## LinkedIn layout variants checked against pasted markup (local fixtures; not a live guarantee)
+| Pasted | Class prefix | Title row | Fixture |
+|---|---|---|---|
+| 2026-10-21 | `kfe…` | title `<p>` directly in a display-contents `<div>` | `job-detail.html`, `job-standalone.html`, `job-cards.html` |
+| 2026-10-22 | `kxh…` | same | `job-search-2026-10-22.html`, `job-search-2026-10-22b.html` |
+| 2026-10-23 | `lrm…` | title `<p>` inside one **extra row `<div>`** | `job-search-2026-10-23.html`, `job-card-2026-10-23.html` |
+
+Class names change on every LinkedIn build and are never used. The meta line and the insight line are found as "the first `<p>` / `<div>`
+after the title's row", where the row is the nearest ancestor `<div>` that has a following `<p>`, so both title-row shapes resolve through
+the primary selector. If that ever fails, header-anchored selectors take over and the field source says so (Preview extraction shows it).

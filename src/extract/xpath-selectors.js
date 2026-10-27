@@ -50,8 +50,10 @@
     // and in the live DOM the two anchors are nested, so match on direct text rather than on a <p> parent.
     company: "(.//a[contains(@href,'/company/')][normalize-space(text())])[1]",
     companyHref: "(.//a[contains(@href,'/company/')][normalize-space(text())])[1]/@href",
-    // "location · posted · applicants" line: the <p> following the title's wrapper div.
-    metaLine: ".//p[a[contains(@href,'/jobs/view/')]]/parent::div/following-sibling::p[1]",
+    // "location · posted · applicants" line: the first <p> that follows the title's row. The title <p> may sit directly in a
+    // display-contents <div> (2026-10-21/22 layouts) or inside one more row <div> (2026-10-23 layout), so the row is the
+    // NEAREST ancestor <div> that has a following <p> sibling, not simply the parent.
+    metaLine: ".//p[a[contains(@href,'/jobs/view/')]]/ancestor::div[following-sibling::p][1]/following-sibling::p[1]",
     metaSpans: "./span[normalize-space()]",
     // Pills (Remote, Full-time, ...): links back to the search URL whose span has text.
     // Their meaning is decided by text vocabulary, not position (see normalize.js).
@@ -85,7 +87,7 @@
     // ---- Insight line under the meta line ----
     // EVIDENCE (both pasted headers): the div right after the meta <p> holds one <p> with LinkedIn's hiring/response
     // insight ("Responses managed off LinkedIn", "No response insights available yet").
-    insightLine: ".//p[a[contains(@href,'/jobs/view/')]]/parent::div/following-sibling::p[1]/following-sibling::div[1][p]",
+    insightLine: ".//p[a[contains(@href,'/jobs/view/')]]/ancestor::div[following-sibling::p][1]/following-sibling::p[1]/following-sibling::div[1][p]",
 
     // ---- Header-anchored selectors (standalone page primary; search-panel fallback) ----
     // Standalone title is a plain <p> (no link), found as the <p> in the row's next sibling div.

@@ -171,7 +171,7 @@ function detailRows(full) {
   group("Record", [
     ["Extraction", extractionLabel(full)],
     ["Warnings", (full.extractionWarnings || []).map(warningLabel).join("\n")],
-    ["Captured from", full.hasFullDetail ? "Full job details" : "List card only (open the job and save again for the description)"],
+    ["Captured from", full.hasFullDetail ? "Full job details" : !full.provider || full.provider === "linkedin" ? "List card only (open the job and save again for the description)" : "Imported record without a description"],
     ["First saved", day(full.createdAt)], ["Last checked", day(full.collectedAt)], ["Last updated", day(full.updatedAt)],
   ]);
   if (full.description) box.append(el("h3", { class: "details-heading", text: "Full description" }), el("div", { class: "description", text: full.description }));

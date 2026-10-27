@@ -46,8 +46,15 @@ export const DETAIL_COLUMNS = Object.freeze([
   "preferred_qualifications", "education_requirements", "certifications", "extraction_status", "extraction_warnings",
   "application_url", "benefits", "industry", "company_size",
 ]);
-export const LIST_COLUMNS = [...LEGACY_COLUMNS, ...DETAIL_COLUMNS].join(",");
-export const FULL_COLUMNS = [...LEGACY_COLUMNS, ...DETAIL_COLUMNS, "description"].join(",");
+// Added by migration 20261023000100_multi_provider_identity.sql (which requires the one above first): the source of a job.
+// Until it is applied every stored job is a LinkedIn job.
+export const PROVIDER_COLUMNS = Object.freeze(["provider", "external_id"]);
+// Three schema levels, newest first. Reads start at "full" and step down when the database says a column does not exist.
+//   full   = applied through 20261023000100      detail = through 20261022000200      legacy = the three originally applied
+export const LIST_COLUMNS = [...LEGACY_COLUMNS, ...DETAIL_COLUMNS, ...PROVIDER_COLUMNS].join(",");
+export const FULL_COLUMNS = [...LEGACY_COLUMNS, ...DETAIL_COLUMNS, ...PROVIDER_COLUMNS, "description"].join(",");
+export const DETAIL_LIST_COLUMNS = [...LEGACY_COLUMNS, ...DETAIL_COLUMNS].join(",");
+export const DETAIL_FULL_COLUMNS = [...LEGACY_COLUMNS, ...DETAIL_COLUMNS, "description"].join(",");
 export const LEGACY_LIST_COLUMNS = LEGACY_COLUMNS.join(",");
 export const LEGACY_FULL_COLUMNS = [...LEGACY_COLUMNS, "description"].join(",");
 
@@ -73,6 +80,7 @@ function list(v, { lower = false, max = 100, itemMax = 500 } = {}) {
   return out;
 }
 
+const LIST_ITEM_MAX = 2000; // one item may be a whole paragraph; the full description is stored separately anyway
 const oneOf = (v, allowed) => (allowed.includes(v) ? v : null);
 
 function isoDate(v) {
@@ -131,8 +139,8 @@ export function toRow(job) {
     application_status_text: applicationStatus ? text(job.applicationStatusText, 500) : null,
     description,
     skills: list(job.skills, { lower: true }),
-    responsibilities: list(job.responsibilities),
-    qualifications: list(job.qualifications),
+    responsibilities: list(job.responsibilities, { itemMax: LIST_ITEM_MAX }),
+    qualifications: list(job.qualifications, { itemMax: LIST_ITEM_MAX }),
     other_pills: list(job.otherPills, { max: 50 }),
     experience_required: text(job.experience),
     salary: text(job.salary),
@@ -146,7 +154,7 @@ export function toRow(job) {
     salary_period: oneOf(job.salaryPeriod, SALARY_PERIODS),
     application_method: oneOf(job.applicationMethod, APPLICATION_METHODS),
     hiring_insight: text(job.hiringInsight, 500),
-    preferred_qualifications: list(job.preferredQualifications),
+    preferred_qualifications: list(job.preferredQualifications, { itemMax: LIST_ITEM_MAX }),
     education_requirements: list(job.education, { max: 20, itemMax: 300 }),
     certifications: list(job.certifications, { max: 20, itemMax: 300 }),
     // A card can never be complete, whatever the record claims.
@@ -247,7 +255,7 @@ export const FIELD_COLUMNS = Object.freeze({
   salaryCurrency: "salary_currency", salaryPeriod: "salary_period", experience: "experience_required", skills: "skills",
   responsibilities: "responsibilities", qualifications: "qualifications", preferredQualifications: "preferred_qualifications",
   education: "education_requirements", certifications: "certifications", otherPills: "other_pills",
-  extractionStatus: "extraction_status", extractionWarnings: "extraction_warnings", collectedAt: "scraped_at",
+  extractionStatus: "extraction_status", extractionWarnings: "extraction_warnings", collectedAt: "scraped_at", provider: "provider",
   applicationUrl: "application_url", benefits: "benefits", industry: "industry", companySize: "company_size",
 });
 
